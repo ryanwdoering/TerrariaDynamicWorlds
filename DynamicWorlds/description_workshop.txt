@@ -28,7 +28,7 @@ Regenerates the world terrain while restoring all progression afterward.
 View world progression at any time:
 [code]/snap[/code]
 
-[b]• ⚒️ Upcoming Major Feature: Permanent User Structures[/b]  
+[b]• Upcoming Major Feature: Permanent User Structures[/b]  
 Future versions will allow you to **flag builds, houses, or regions as “persistent,”** allowing them to survive world regenerations intact—even as terrain around them changes.  
 This will enable roguelike worlds, modular bases, map editors, and safe persistent staging areas.
 
