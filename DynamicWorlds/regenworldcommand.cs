@@ -1,4 +1,3 @@
-// RegenWorldCommand.cs
 using System;
 using System.Linq;
 using Microsoft.Xna.Framework;
@@ -10,10 +9,6 @@ using Terraria.GameContent.Generation;
 
 namespace DynamicWorlds
 {
-    /// <summary>
-    /// Helper that does the actual single-player world regeneration
-    /// and prints debug info about world progression before/after.
-    /// </summary>
     public static class SingleplayerRegenHelper
     {
         private static bool regenRunning = false;
@@ -43,7 +38,7 @@ namespace DynamicWorlds
 
                 // Capture current progression (Hardmode, bosses, ore tiers, etc.)
                 var before = WorldProgressUtil.Capture();
-                PrintSnapshot("Before regen", before);
+                WorldProgressUtil.PrintSnapshotToChat("Before regen", before);
 
                 Main.NewText("Regenerating world with preserved progression...", 200, 200, 255);
 
@@ -83,7 +78,7 @@ namespace DynamicWorlds
 
                 // Capture progression again after regen+apply, to verify behavior
                 var after = WorldProgressUtil.Capture();
-                PrintSnapshot("After regen", after);
+                WorldProgressUtil.PrintSnapshotToChat("After regen", after);
 
                 Main.NewText("World regeneration complete!", 80, 255, 80);
             }
@@ -92,105 +87,196 @@ namespace DynamicWorlds
                 regenRunning = false;
             }
         }
-
-        private static void PrintSnapshot(string label, WorldProgressSnapshot s)
-        {
-            if (s == null)
-            {
-                Main.NewText($"{label}: snapshot is null", 255, 80, 80);
-                return;
-            }
-
-            // Basic world state
-            string evil = s.crimson ? "Crimson" : "Corruption";
-            string mode = s.hardMode ? "Hardmode" : "Pre-Hardmode";
-
-            Main.NewText($"{label} – {mode}, {evil}", 200, 220, 255);
-
-            // Pre-hardmode ore tiers
-            string preOres =
-                $"{OreName(s.copperTier)}, " +
-                $"{OreName(s.ironTier)}, " +
-                $"{OreName(s.silverTier)}, " +
-                $"{OreName(s.goldTier)}";
-
-            Main.NewText($"  Pre-HM ores  → {preOres}", 180, 220, 180);
-
-            // Hardmode ore tiers
-            string hmOres =
-                $"{OreName(s.cobaltTier)}, " +
-                $"{OreName(s.mythrilTier)}, " +
-                $"{OreName(s.adamantiteTier)}";
-
-            Main.NewText($"  HM ores      → {hmOres}", 180, 220, 180);
-
-            // Boss summary (short flags)
-            string bosses =
-                $"{Flag("Eye", s.downedBoss1)} " +
-                $"{Flag("Evil", s.downedBoss2)} " +
-                $"{Flag("Skeletron", s.downedBoss3)} " +
-                $"{Flag("QueenBee", s.downedQueenBee)} " +
-                $"{Flag("KingSlime", s.downedSlimeKing)} " +
-                $"{Flag("Deerclops", s.downedDeerclops)} " +
-                $"{Flag("Mechs", s.downedMech1 || s.downedMech2 || s.downedMech3)} " +
-                $"{Flag("Plantera", s.downedPlantera)} " +
-                $"{Flag("Golem", s.downedGolem)} " +
-                $"{Flag("Fishron", s.downedFishron)} " +
-                $"{Flag("MoonLord", s.downedMoonLord)}";
-
-            Main.NewText($"  Bosses       → {bosses}", 220, 200, 160);
-        }
-
-        private static string Flag(string name, bool downed)
-            => downed ? $"[{name}✓]" : $"[{name} ]";
-
-        private static string OreName(int tileId)
-        {
-            switch (tileId)
-            {
-                case TileID.Copper:      return "Copper";
-                case TileID.Tin:         return "Tin";
-                case TileID.Iron:        return "Iron";
-                case TileID.Lead:        return "Lead";
-                case TileID.Silver:      return "Silver";
-                case TileID.Tungsten:    return "Tungsten";
-                case TileID.Gold:        return "Gold";
-                case TileID.Platinum:    return "Platinum";
-
-                case TileID.Cobalt:      return "Cobalt";
-                case TileID.Palladium:   return "Palladium";
-                case TileID.Mythril:     return "Mythril";
-                case TileID.Orichalcum:  return "Orichalcum";
-                case TileID.Adamantite:  return "Adamantite";
-                case TileID.Titanium:    return "Titanium";
-
-                default:
-                    if (tileId <= 0)
-                        return "Unset";
-                    return $"TileID {tileId}";
-            }
-        }
     }
 
-    /// <summary>
-    /// Chat command: /regenworld
-    /// Regenerates the world in single player while preserving progression,
-    /// and prints debug info before / after to verify correctness.
-    /// </summary>
     public class RegenWorldCommand : ModCommand
     {
         public override CommandType Type => CommandType.Chat;
-
         public override string Command => "regenworld";
-
         public override string Usage => "/regenworld";
-
         public override string Description =>
-            "Regenerates the world layout while keeping Hardmode, ores, and boss progression (single-player only).";
+            "Regenerates the world layout while keeping Hardmode, ores, bosses, invasions, etc. (single-player only).";
 
         public override void Action(CommandCaller caller, string input, string[] args)
         {
             SingleplayerRegenHelper.RegenerateWorldWithProgress();
+        }
+    }
+    
+    // /hardmode and /down commands exactly as we had them before:
+    // (no changes needed to integrate with world-load printing / saving)
+
+    public class HardmodeCommand : ModCommand
+    {
+        public override CommandType Type => CommandType.Chat;
+        public override string Command => "hardmode";
+        public override string Usage => "/hardmode [on|off]";
+        public override string Description =>
+            "Toggle Hardmode for this world (single-player only).";
+
+        public override void Action(CommandCaller caller, string input, string[] args)
+        {
+            if (Main.netMode != NetmodeID.SinglePlayer)
+            {
+                Main.NewText("Hardmode command only works in single player.", 255, 80, 80);
+                return;
+            }
+
+            bool setHardmode = true;
+            if (args.Length >= 1)
+            {
+                string arg = args[0].ToLowerInvariant();
+                if (arg == "off" || arg == "false" || arg == "0")
+                    setHardmode = false;
+            }
+
+            Main.hardMode = setHardmode;
+
+            if (setHardmode)
+            {
+                WorldProgressUtil.ChooseHardmodeOresVanillaStyle();
+                Main.NewText("Hardmode ENABLED for this world.", 150, 255, 150);
+            }
+            else
+            {
+                Main.NewText("Hardmode DISABLED for this world.", 255, 150, 150);
+            }
+
+            WorldProgressUtil.SaveToFile();
+        }
+    }
+
+    public class DownCommand : ModCommand
+    {
+        public override CommandType Type => CommandType.Chat;
+        public override string Command => "down";
+        public override string Usage => "/down <bossOrEvent>";
+        public override string Description =>
+            "Mark a boss or event as defeated (e.g., /down eye, /down plantera, /down goblins).";
+
+        public override void Action(CommandCaller caller, string input, string[] args)
+        {
+            if (Main.netMode != NetmodeID.SinglePlayer)
+            {
+                Main.NewText("Down command only works in single player.", 255, 80, 80);
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Main.NewText("Usage: /down <eye|evil|skeletron|queenbee|kingslime|deerclops|mech1|mech2|mech3|plantera|golem|fishron|moonlord|goblins|frost|pirates|martians|pumpkin|frostmoon>", 255, 230, 150);
+                return;
+            }
+
+            string key = args[0].ToLowerInvariant();
+            if (!DownFlagHelper.SetDowned(key, out string label))
+            {
+                Main.NewText($"Unknown boss/event '{key}'.", 255, 80, 80);
+                Main.NewText("Valid: eye, evil, skeletron, queenbee, kingslime, deerclops, mech1, mech2, mech3, plantera, golem, fishron, moonlord, goblins, frost, pirates, martians, pumpkin, frostmoon", 255, 230, 150);
+                return;
+            }
+
+            Main.NewText($"Marked {label} as defeated.", 150, 255, 150);
+            WorldProgressUtil.SaveToFile();
+        }
+    }
+
+    public static class DownFlagHelper
+    {
+        public static bool SetDowned(string key, out string label)
+        {
+            label = "";
+
+            switch (key)
+            {
+                case "eye":
+                case "eyeofcthulhu":
+                    NPC.downedBoss1 = true; label = "Eye of Cthulhu"; return true;
+                case "evil":
+                case "eow":
+                case "boc":
+                case "worldeater":
+                case "brainofcthulhu":
+                    NPC.downedBoss2 = true; label = "Evil boss (EoW / BoC)"; return true;
+                case "skeletron":
+                    NPC.downedBoss3 = true; label = "Skeletron"; return true;
+                case "queenbee":
+                case "qb":
+                    NPC.downedQueenBee = true; label = "Queen Bee"; return true;
+                case "kingslime":
+                case "slimeking":
+                    NPC.downedSlimeKing = true; label = "King Slime"; return true;
+                case "deerclops":
+                    NPC.downedDeerclops = true; label = "Deerclops"; return true;
+
+                case "mech1":
+                case "twins":
+                    NPC.downedMechBoss1 = true; label = "The Twins"; return true;
+                case "mech2":
+                case "destroyer":
+                    NPC.downedMechBoss2 = true; label = "The Destroyer"; return true;
+                case "mech3":
+                case "prime":
+                case "skeletronprime":
+                    NPC.downedMechBoss3 = true; label = "Skeletron Prime"; return true;
+
+                case "plantera":
+                    NPC.downedPlantBoss = true; label = "Plantera"; return true;
+                case "golem":
+                    NPC.downedGolemBoss = true; label = "Golem"; return true;
+                case "fishron":
+                    NPC.downedFishron = true; label = "Duke Fishron"; return true;
+                case "moonlord":
+                case "ml":
+                    NPC.downedMoonlord = true; label = "Moon Lord"; return true;
+
+                case "goblins":
+                case "goblinarmy":
+                    NPC.downedGoblins = true; label = "Goblin Army"; return true;
+                case "frost":
+                case "frostlegion":
+                    NPC.downedFrost = true; label = "Frost Legion"; return true;
+                case "pirates":
+                case "pirateinvasion":
+                    NPC.downedPirates = true; label = "Pirate Invasion"; return true;
+                case "martians":
+                case "martianmadness":
+                    NPC.downedMartians = true; label = "Martian Madness"; return true;
+
+                case "pumpkin":
+                case "pumpkinmoon":
+                    NPC.downedHalloweenKing = true;
+                    NPC.downedHalloweenTree = true;
+                    label = "Pumpkin Moon (Pumpking + Mourning Wood)";
+                    return true;
+
+                case "frostmoon":
+                case "fm":
+                    NPC.downedChristmasIceQueen = true;
+                    NPC.downedChristmasSantank = true;
+                    NPC.downedChristmasTree = true;
+                    label = "Frost Moon (Ice Queen / Santa-NK1 / Everscream)";
+                    return true;
+
+                default:
+                    return false;
+            }
+        }
+    }
+
+    //snap command that just prints the current snapshot
+    public class SnapshotCommand : ModCommand
+    {
+        public override CommandType Type => CommandType.Chat;
+        public override string Command => "snap";
+        public override string Usage => "/snap";
+        public override string Description =>
+            "Prints the current world progression snapshot.";
+
+        public override void Action(CommandCaller caller, string input, string[] args)
+        {
+            var snap = WorldProgressUtil.Capture();
+            WorldProgressUtil.PrintSnapshotToChat("Snapshot", snap);
         }
     }
 }

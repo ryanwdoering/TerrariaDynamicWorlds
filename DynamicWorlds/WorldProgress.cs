@@ -1,20 +1,24 @@
-// WorldProgress.cs
 using System;
 using System.IO;
 using System.Text.Json;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
-using Terraria.GameContent; // for GameModeData (world difficulty info)
 
 namespace DynamicWorlds
 {
     /// <summary>
     /// Snapshot of the world "progress" we care about between regenerations.
     /// This is what we persist to JSON next to the world file.
+    /// NOTE: Wall of Flesh is NOT tracked; it is implied by hardMode.
     /// </summary>
     public class WorldProgressSnapshot
     {
+        // --- World identity (ties snapshot permanently to a specific world) ---
+        public string worldName;
+        public int worldId;         // Main.worldID
+        public string worldSeed;    // Main.ActiveWorldFileData.SeedText (if available)
+
         // Core world state
         public bool hardMode;
         public bool crimson;   // true = Crimson, false = Corruption
@@ -23,7 +27,7 @@ namespace DynamicWorlds
         // 0 = Classic, 1 = Expert, 2 = Master, 3 = Journey
         public int gameMode;
 
-        // Boss progression
+        // Boss progression (Wall of Flesh is derived from hardMode)
         public bool downedBoss1;        // Eye of Cthulhu
         public bool downedBoss2;        // EoW/BoC
         public bool downedBoss3;        // Skeletron
@@ -31,8 +35,6 @@ namespace DynamicWorlds
         public bool downedQueenBee;
         public bool downedSlimeKing;
         public bool downedDeerclops;
-
-        public bool downedWallOfFlesh;  // explicitly track WoF
 
         public bool downedMech1;        // Twins
         public bool downedMech2;        // Destroyer
@@ -103,12 +105,17 @@ namespace DynamicWorlds
         {
             var s = new WorldProgressSnapshot
             {
+                // --- identity ---
+                worldName = Main.worldName,
+                worldId   = Main.worldID,
+                worldSeed = Main.ActiveWorldFileData?.SeedText ?? string.Empty,
+
                 // core
                 hardMode       = Main.hardMode,
                 crimson        = WorldGen.crimson,
                 gameMode       = Main.GameMode,
 
-                // bosses
+                // bosses (Wall of Flesh is implied by hardMode)
                 downedBoss1       = NPC.downedBoss1,
                 downedBoss2       = NPC.downedBoss2,
                 downedBoss3       = NPC.downedBoss3,
@@ -129,6 +136,13 @@ namespace DynamicWorlds
                 downedFrostLegion        = NPC.downedFrost,
                 downedPirates            = NPC.downedPirates,
                 downedMartians           = NPC.downedMartians,
+
+                downedPumpkinMoonKing    = NPC.downedHalloweenKing,
+                downedPumpkinMoonTree    = NPC.downedHalloweenTree,
+
+                downedFrostMoonIceQueen  = NPC.downedChristmasIceQueen,
+                downedFrostMoonSantank   = NPC.downedChristmasSantank,
+                downedFrostMoonTree      = NPC.downedChristmasTree,
 
                 // Pre-hardmode ore tiers (Copper/Tin, Iron/Lead, Silver/Tungsten, Gold/Platinum)
                 copperTier     = WorldGen.SavedOreTiers.Copper,
@@ -153,7 +167,7 @@ namespace DynamicWorlds
             if (s == null)
                 return;
 
-            // Core stuff
+            // Core world state
             Main.hardMode    = s.hardMode;
             WorldGen.crimson = s.crimson;
 
@@ -161,11 +175,10 @@ namespace DynamicWorlds
             // GameMode: 0 = Classic, 1 = Expert, 2 = Master, 3 = Journey
             if (s.gameMode >= 0 && s.gameMode <= 3)
             {
-                Main.GameMode      = s.gameMode;
-                // Keep GameModeInfo in sync so enemy stats / drops line up
+                Main.GameMode = s.gameMode;
             }
 
-            // Boss flags
+            // Boss flags (except WoF, handled above)
             NPC.downedBoss1        = s.downedBoss1;
             NPC.downedBoss2        = s.downedBoss2;
             NPC.downedBoss3        = s.downedBoss3;
@@ -271,28 +284,98 @@ namespace DynamicWorlds
             catch
             {
                 // If this fails, progression just doesn't persist this time.
+                Main.NewText("Warning: Failed to save world progression snapshot.", 255, 80, 80);
             }
         }
 
+     
         /// <summary>
-        /// Load snapshot from disk (if present) and apply to current world.
-        /// Called when the world loads (including an autocreated fresh world).
+        /// Print a snapshot summary to chat (used on world load and regen).
         /// </summary>
-        public static void LoadFromFileAndApply()
+        public static void PrintSnapshotToChat(string label, WorldProgressSnapshot s)
         {
-            try
+            if (s == null)
             {
-                string path = GetProgressFilePath();
-                if (!File.Exists(path))
-                    return;
-
-                string json = File.ReadAllText(path);
-                var snap = JsonSerializer.Deserialize<WorldProgressSnapshot>(json);
-                Apply(snap);
+                Main.NewText($"{label}: snapshot is null", 255, 80, 80);
+                return;
             }
-            catch
+
+            string evil = s.crimson ? "Crimson" : "Corruption";
+            string mode = s.hardMode ? "Hardmode" : "Pre-Hardmode";
+
+            Main.NewText($"{label} – {mode}, {evil} (GameMode={s.gameMode}, WorldID={s.worldId})", 200, 220, 255);
+
+            // Pre-hardmode ore tiers
+            string preOres =
+                $"{OreName(s.copperTier)}, " +
+                $"{OreName(s.ironTier)}, " +
+                $"{OreName(s.silverTier)}, " +
+                $"{OreName(s.goldTier)}";
+
+            Main.NewText($"  Pre-HM ores  → {preOres}", 180, 220, 180);
+
+            // Hardmode ore tiers
+            string hmOres =
+                $"{OreName(s.cobaltTier)}, " +
+                $"{OreName(s.mythrilTier)}, " +
+                $"{OreName(s.adamantiteTier)}";
+
+            Main.NewText($"  HM ores      → {hmOres}", 180, 220, 180);
+
+            // Boss summary (short flags)
+            string bosses =
+                $"{Flag("Eye", s.downedBoss1)} " +
+                $"{Flag("Evil", s.downedBoss2)} " +
+                $"{Flag("Skeletron", s.downedBoss3)} " +
+                $"{Flag("QueenBee", s.downedQueenBee)} " +
+                $"{Flag("KingSlime", s.downedSlimeKing)} " +
+                $"{Flag("Deerclops", s.downedDeerclops)} " +
+                $"{Flag("Mechs", s.downedMech1 || s.downedMech2 || s.downedMech3)} " +
+                $"{Flag("Plantera", s.downedPlantera)} " +
+                $"{Flag("Golem", s.downedGolem)} " +
+                $"{Flag("Fishron", s.downedFishron)} " +
+                $"{Flag("MoonLord", s.downedMoonLord)}";
+
+            Main.NewText($"  Bosses       → {bosses}", 220, 200, 160);
+
+            string invasions =
+                $"{Flag("Goblins", s.downedGoblins)} " +
+                $"{Flag("FrostLegion", s.downedFrostLegion)} " +
+                $"{Flag("Pirates", s.downedPirates)} " +
+                $"{Flag("Martians", s.downedMartians)} " +
+                $"{Flag("Pumpkin", s.downedPumpkinMoonKing || s.downedPumpkinMoonTree)} " +
+                $"{Flag("FrostMoon", s.downedFrostMoonIceQueen || s.downedFrostMoonSantank || s.downedFrostMoonTree)}";
+
+            Main.NewText($"  Invasions    → {invasions}", 200, 220, 200);
+        }
+
+        private static string Flag(string name, bool downed)
+            => downed ? $"[{name}✓]" : $"[{name} ]";
+
+        private static string OreName(int tileId)
+        {
+            switch (tileId)
             {
-                // If this fails, just skip applying; world will behave like a fresh one.
+                case TileID.Copper:      return "Copper";
+                case TileID.Tin:         return "Tin";
+                case TileID.Iron:        return "Iron";
+                case TileID.Lead:        return "Lead";
+                case TileID.Silver:      return "Silver";
+                case TileID.Tungsten:    return "Tungsten";
+                case TileID.Gold:        return "Gold";
+                case TileID.Platinum:    return "Platinum";
+
+                case TileID.Cobalt:      return "Cobalt";
+                case TileID.Palladium:   return "Palladium";
+                case TileID.Mythril:     return "Mythril";
+                case TileID.Orichalcum:  return "Orichalcum";
+                case TileID.Adamantite:  return "Adamantite";
+                case TileID.Titanium:    return "Titanium";
+
+                default:
+                    if (tileId <= 0)
+                        return "Unset";
+                    return $"TileID {tileId}";
             }
         }
     }
@@ -300,26 +383,36 @@ namespace DynamicWorlds
     /// <summary>
     /// Hooks into tModLoader's world lifecycle to automatically
     /// save and restore world progression across world file regenerations.
+    /// Also prints world info when entering the game.
     /// </summary>
     public class RoguelikeWorldSystem : ModSystem
     {
-        public override void OnWorldLoad()
+        /// <summary>
+        /// Called after LoadWorldData; at this point the world is ready
+        /// to be entered. We just print debug info here.
+        /// </summary>
+        public override void PostWorldLoad()
         {
-            // World (including a brand-new regenerated one) has just loaded.
-            WorldProgressUtil.LoadFromFileAndApply();
+        
+            var snap = WorldProgressUtil.Capture();
+            WorldProgressUtil.PrintSnapshotToChat("World loaded", snap);
         }
 
+        /// <summary>
+        /// World is about to unload (single-player exit, server stop, etc.).
+        /// Capture and persist the latest progression for this world.
+        /// </summary>
         public override void OnWorldUnload()
         {
-            // World is about to unload (SP exit, server stop, etc.) – snapshot progression.
             WorldProgressUtil.SaveToFile();
         }
 
+        /// <summary>
+        /// Called when the player hits "Save & Exit" from the menu
+        /// on the local client. Ensures snapshot is up-to-date.
+        /// </summary>
         public override void PreSaveAndQuit()
         {
-            // Called when the player hits "Save & Exit" from the menu.
-            // This guarantees the JSON snapshot is up-to-date even if the game is closed normally,
-            // not just on crashes or external server stop.
             WorldProgressUtil.SaveToFile();
         }
     }
