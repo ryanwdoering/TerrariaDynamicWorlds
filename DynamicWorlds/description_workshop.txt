@@ -1,1 +1,37 @@
-This description will show up on the steam page, check out https://steamcommunity.com/comment/Guide/formattinghelp.
+[b][h1]Dynamic Worlds – Persistent World Progression + World Regeneration[/h1][/b]
+
+Dynamic Worlds is a lightweight utility mod that lets you regenerate your Terraria world layout WITHOUT losing your bosses, Hardmode status, ore tiers, or event progression.
+
+Whether you want a fresh world layout or a new biome distribution—but don’t want to repeat early-game progression—this mod preserves your world’s identity and upgrades while refreshing terrain.
+
+---
+
+[h2]⭐ Features[/h2]
+
+[b]• World Progress Persistence[/b]  
+Automatically saves bosses, invasions, Hardmode, ore tiers, and progression flags to a JSON file linked to your world.
+
+[b]• World Regeneration with Progress Kept[/b]  
+Use:
+[code]/regenworld[/code]
+Regenerates the world terrain while restoring all progression afterward.
+
+[b]• Hardmode Toggle[/b]  
+[code]/hardmode on[/code]  
+[code]/hardmode off[/code]
+
+[b]• Boss/Event Flags Editing[/b]  
+[code]/down eye[/code]  
+[code]/down plantera[/code]
+
+[b]• Snapshot Debugging[/b]  
+View world progression at any time:
+[code]/snap[/code]
+
+[b]• ⚒️ Upcoming Major Feature: Permanent User Structures[/b]  
+Future versions will allow you to **flag builds, houses, or regions as “persistent,”** allowing them to survive world regenerations intact—even as terrain around them changes.  
+This will enable roguelike worlds, modular bases, map editors, and safe persistent staging areas.
+
+---
+
+[b]More features are planned. Rate the mod to support development![/b]

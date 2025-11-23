@@ -1,0 +1,28 @@
+# Output artifacts
+/bin/
+/obj/
+*.dll
+*.pdb
+
+# Packaged mod
+/*.tmod
+
+# IDE-specific
+.vscode/
+.vs/
+.idea/
+*.user
+*.suo
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs and temp
+*.log
+*.tmp
+*.cache
+
+# Snapshot files
+*_progress.json
+DynamicWorlds/WorldProgress.json
