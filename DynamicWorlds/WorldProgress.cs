@@ -5,6 +5,7 @@ using System.Text.Json;
 using Terraria;
 using Terraria.ID;
 using Terraria.ModLoader;
+using Terraria.GameContent; // for GameModeData (world difficulty info)
 
 namespace DynamicWorlds
 {
@@ -18,22 +19,41 @@ namespace DynamicWorlds
         public bool hardMode;
         public bool crimson;   // true = Crimson, false = Corruption
 
+        // World difficulty / game mode
+        // 0 = Classic, 1 = Expert, 2 = Master, 3 = Journey
+        public int gameMode;
+
         // Boss progression
-        public bool downedBoss1;      // Eye of Cthulhu
-        public bool downedBoss2;      // EoW/BoC
-        public bool downedBoss3;      // Skeletron
+        public bool downedBoss1;        // Eye of Cthulhu
+        public bool downedBoss2;        // EoW/BoC
+        public bool downedBoss3;        // Skeletron
 
         public bool downedQueenBee;
         public bool downedSlimeKing;
         public bool downedDeerclops;
 
-        public bool downedMech1;      // Twins
-        public bool downedMech2;      // Destroyer
-        public bool downedMech3;      // Skeletron Prime
+        public bool downedWallOfFlesh;  // explicitly track WoF
+
+        public bool downedMech1;        // Twins
+        public bool downedMech2;        // Destroyer
+        public bool downedMech3;        // Skeletron Prime
         public bool downedPlantera;
         public bool downedGolem;
         public bool downedFishron;
         public bool downedMoonLord;
+
+        // Invasions / seasonal events
+        public bool downedGoblins;              // Goblin Army
+        public bool downedFrostLegion;          // Frost Legion
+        public bool downedPirates;              // Pirate Invasion
+        public bool downedMartians;             // Martian Madness
+
+        public bool downedPumpkinMoonKing;      // Pumpking
+        public bool downedPumpkinMoonTree;      // Mourning Wood
+
+        public bool downedFrostMoonIceQueen;    // Ice Queen
+        public bool downedFrostMoonSantank;     // Santa-NK1
+        public bool downedFrostMoonTree;        // Everscream
 
         // Ore tiers – these are the ones stored in WorldGen.SavedOreTiers.
         // Pre-hardmode:
@@ -83,23 +103,32 @@ namespace DynamicWorlds
         {
             var s = new WorldProgressSnapshot
             {
+                // core
                 hardMode       = Main.hardMode,
                 crimson        = WorldGen.crimson,
+                gameMode       = Main.GameMode,
 
-                downedBoss1    = NPC.downedBoss1,
-                downedBoss2    = NPC.downedBoss2,
-                downedBoss3    = NPC.downedBoss3,
-                downedQueenBee = NPC.downedQueenBee,
-                downedSlimeKing= NPC.downedSlimeKing,
-                downedDeerclops= NPC.downedDeerclops,
+                // bosses
+                downedBoss1       = NPC.downedBoss1,
+                downedBoss2       = NPC.downedBoss2,
+                downedBoss3       = NPC.downedBoss3,
+                downedQueenBee    = NPC.downedQueenBee,
+                downedSlimeKing   = NPC.downedSlimeKing,
+                downedDeerclops   = NPC.downedDeerclops,
 
-                downedMech1    = NPC.downedMechBoss1,
-                downedMech2    = NPC.downedMechBoss2,
-                downedMech3    = NPC.downedMechBoss3,
-                downedPlantera = NPC.downedPlantBoss,
-                downedGolem    = NPC.downedGolemBoss,
-                downedFishron  = NPC.downedFishron,
-                downedMoonLord = NPC.downedMoonlord,
+                downedMech1       = NPC.downedMechBoss1,
+                downedMech2       = NPC.downedMechBoss2,
+                downedMech3       = NPC.downedMechBoss3,
+                downedPlantera    = NPC.downedPlantBoss,
+                downedGolem       = NPC.downedGolemBoss,
+                downedFishron     = NPC.downedFishron,
+                downedMoonLord    = NPC.downedMoonlord,
+
+                // invasions / seasonal events
+                downedGoblins            = NPC.downedGoblins,
+                downedFrostLegion        = NPC.downedFrost,
+                downedPirates            = NPC.downedPirates,
+                downedMartians           = NPC.downedMartians,
 
                 // Pre-hardmode ore tiers (Copper/Tin, Iron/Lead, Silver/Tungsten, Gold/Platinum)
                 copperTier     = WorldGen.SavedOreTiers.Copper,
@@ -128,33 +157,53 @@ namespace DynamicWorlds
             Main.hardMode    = s.hardMode;
             WorldGen.crimson = s.crimson;
 
-            // Boss flags
-            NPC.downedBoss1     = s.downedBoss1;
-            NPC.downedBoss2     = s.downedBoss2;
-            NPC.downedBoss3     = s.downedBoss3;
-            NPC.downedQueenBee  = s.downedQueenBee;
-            NPC.downedSlimeKing = s.downedSlimeKing;
-            NPC.downedDeerclops = s.downedDeerclops;
+            // World difficulty: match the previous world
+            // GameMode: 0 = Classic, 1 = Expert, 2 = Master, 3 = Journey
+            if (s.gameMode >= 0 && s.gameMode <= 3)
+            {
+                Main.GameMode      = s.gameMode;
+                // Keep GameModeInfo in sync so enemy stats / drops line up
+            }
 
-            NPC.downedMechBoss1 = s.downedMech1;
-            NPC.downedMechBoss2 = s.downedMech2;
-            NPC.downedMechBoss3 = s.downedMech3;
-            NPC.downedPlantBoss = s.downedPlantera;
-            NPC.downedGolemBoss = s.downedGolem;
-            NPC.downedFishron   = s.downedFishron;
-            NPC.downedMoonlord  = s.downedMoonLord;
+            // Boss flags
+            NPC.downedBoss1        = s.downedBoss1;
+            NPC.downedBoss2        = s.downedBoss2;
+            NPC.downedBoss3        = s.downedBoss3;
+            NPC.downedQueenBee     = s.downedQueenBee;
+            NPC.downedSlimeKing    = s.downedSlimeKing;
+            NPC.downedDeerclops    = s.downedDeerclops;
+
+            NPC.downedMechBoss1    = s.downedMech1;
+            NPC.downedMechBoss2    = s.downedMech2;
+            NPC.downedMechBoss3    = s.downedMech3;
+            NPC.downedPlantBoss    = s.downedPlantera;
+            NPC.downedGolemBoss    = s.downedGolem;
+            NPC.downedFishron      = s.downedFishron;
+            NPC.downedMoonlord     = s.downedMoonLord;
+
+            // Invasion / seasonal flags
+            NPC.downedGoblins          = s.downedGoblins;
+            NPC.downedFrost            = s.downedFrostLegion;
+            NPC.downedPirates          = s.downedPirates;
+            NPC.downedMartians         = s.downedMartians;
+
+            NPC.downedHalloweenKing    = s.downedPumpkinMoonKing;
+            NPC.downedHalloweenTree    = s.downedPumpkinMoonTree;
+
+            NPC.downedChristmasIceQueen = s.downedFrostMoonIceQueen;
+            NPC.downedChristmasSantank  = s.downedFrostMoonSantank;
+            NPC.downedChristmasTree     = s.downedFrostMoonTree;
 
             // Pre-hardmode ore tiers – only overwrite if they look valid (> 0).
-            // These determine Copper/Tin, Iron/Lead, Silver/Tungsten, Gold/Platinum.
-            if (s.copperTier      > 0) WorldGen.SavedOreTiers.Copper      = s.copperTier;
-            if (s.ironTier        > 0) WorldGen.SavedOreTiers.Iron        = s.ironTier;
-            if (s.silverTier      > 0) WorldGen.SavedOreTiers.Silver      = s.silverTier;
-            if (s.goldTier        > 0) WorldGen.SavedOreTiers.Gold        = s.goldTier;
+            if (s.copperTier     > 0) WorldGen.SavedOreTiers.Copper      = s.copperTier;
+            if (s.ironTier       > 0) WorldGen.SavedOreTiers.Iron        = s.ironTier;
+            if (s.silverTier     > 0) WorldGen.SavedOreTiers.Silver      = s.silverTier;
+            if (s.goldTier       > 0) WorldGen.SavedOreTiers.Gold        = s.goldTier;
 
             // Hardmode ore tiers – this is what you really care about for "matching progress".
-            if (s.cobaltTier      > 0) WorldGen.SavedOreTiers.Cobalt      = s.cobaltTier;
-            if (s.mythrilTier     > 0) WorldGen.SavedOreTiers.Mythril     = s.mythrilTier;
-            if (s.adamantiteTier  > 0) WorldGen.SavedOreTiers.Adamantite  = s.adamantiteTier;
+            if (s.cobaltTier     > 0) WorldGen.SavedOreTiers.Cobalt      = s.cobaltTier;
+            if (s.mythrilTier    > 0) WorldGen.SavedOreTiers.Mythril     = s.mythrilTier;
+            if (s.adamantiteTier > 0) WorldGen.SavedOreTiers.Adamantite  = s.adamantiteTier;
 
             // If the snapshot says we *should* be in Hardmode but the ore tiers were never set,
             // fall back to vanilla-style Hardmode ore selection (SmashAltar logic).
@@ -175,7 +224,6 @@ namespace DynamicWorlds
         /// </summary>
         public static void ChooseHardmodeOresVanillaStyle()
         {
-            // These match the conditions you saw in SmashAltar in ILSpy.
             if (WorldGen.SavedOreTiers.Cobalt <= 0)
             {
                 WorldGen.SavedOreTiers.Cobalt =
@@ -203,7 +251,6 @@ namespace DynamicWorlds
 
         /// <summary>
         /// Save current snapshot to disk as JSON.
-        /// Called when the world unloads.
         /// </summary>
         public static void SaveToFile()
         {
@@ -251,7 +298,7 @@ namespace DynamicWorlds
     }
 
     /// <summary>
-    /// Hooks into tModLoader's world load/unload events to automatically
+    /// Hooks into tModLoader's world lifecycle to automatically
     /// save and restore world progression across world file regenerations.
     /// </summary>
     public class RoguelikeWorldSystem : ModSystem
@@ -265,6 +312,14 @@ namespace DynamicWorlds
         public override void OnWorldUnload()
         {
             // World is about to unload (SP exit, server stop, etc.) – snapshot progression.
+            WorldProgressUtil.SaveToFile();
+        }
+
+        public override void PreSaveAndQuit()
+        {
+            // Called when the player hits "Save & Exit" from the menu.
+            // This guarantees the JSON snapshot is up-to-date even if the game is closed normally,
+            // not just on crashes or external server stop.
             WorldProgressUtil.SaveToFile();
         }
     }
