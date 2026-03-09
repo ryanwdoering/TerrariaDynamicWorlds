@@ -2,16 +2,18 @@
 
 Dynamic Worlds is a lightweight utility mod that lets you regenerate your Terraria world layout WITHOUT losing your bosses, Hardmode status, ore tiers, or event progression.
 
-Whether you want a fresh world layout or a new biome distribution—but don't want to repeat early-game progression—this mod preserves your world's identity and upgrades while refreshing terrain.
+Whether you want a fresh world layout or a new biome distribution — but don't want to repeat early-game progression — this mod preserves your world's identity and upgrades while refreshing terrain.
 
 ---
 
 [h2]⭐ Features[/h2]
 
 [b]• World Regeneration with Progress Kept[/b]
-Use:
+Use [code]/regenworld[/code] to regenerate the world terrain while restoring all progression afterward. Bosses, Hardmode, ores, invasions, and town NPCs are all preserved. Pass an optional seed for a repeatable result:
 [code]/regenworld[/code]
-Regenerates the world terrain while restoring all progression afterward. Bosses, Hardmode, ores, and invasions are all preserved.
+[code]/regenworld 12345[/code]
+[code]/regenworld myseedname[/code]
+After teleporting, you receive [b]10 seconds of Featherfall[/b] so you land safely.
 
 [b]• Automatic Regeneration Scheduler[/b]
 The world automatically regenerates every [b]7 in-game days[/b]. A spooky countdown broadcasts in chat as the day approaches:
@@ -24,18 +26,35 @@ The world automatically regenerates every [b]7 in-game days[/b]. A spooky countd
 The day counter saves with your world — it survives restarts. Check days remaining with [b]/snap[/b].
 
 [b]• Reality Anchor – Persistent Structures[/b]
-Mark tiles you want to [b]keep[/b] across every regeneration:
+Mark tiles you want to [b]keep[/b] across every regeneration. The Reality Anchor is given to you automatically when you first enter a world.
 [list]
-[*] [b]Left-click[/b] any tile while holding the Reality Anchor item to anchor or unanchor it. Anchored tiles glow so you can spot them easily.
-[*] [b]Chests and dressers[/b] save their exact contents — even after a full world regen.
-[*] [b]Right-click[/b] the Reality Anchor in your inventory to restore all anchored tiles immediately, without running a full regen.
+[*] [b]Left-click[/b] any tile while holding the Reality Anchor to anchor or unanchor it. Anchored tiles glow while the item is held.
+[*] [b]Click and drag[/b] to anchor or unanchor a whole rectangular area at once.
+[*] [b]Chests and dressers[/b] save their exact contents — items included.
+[*] [b]Anchor your bed[/b] to preserve your personal spawn point. The mod validates the bed tile survived before reasserting your spawn.
+[*] [b]Right-click[/b] the Reality Anchor in your inventory to restore all anchored tiles immediately, without running a full regen. The item is [b]never consumed[/b].
+[*] The anchor limit scales with boss progression: [b]5,000 tiles[/b] at the start, up to [b]100,000[/b] after Moon Lord.
+[*] The tooltip shows your current count, cap, fill level, and whether your bed is anchored.
+[/list]
+
+[b]• Reality Eraser – Guaranteed Empty Tiles[/b]
+Mark tiles to be [b]cleared to empty space[/b] after every world regen. The Reality Eraser is given to you alongside the Reality Anchor.
+[list]
+[*] [b]Left-click[/b] any tile while holding the Reality Eraser to mark or unmark it for erasure.
+[*] [b]Click and drag[/b] to mark or unmark a whole rectangular area at once.
+[*] Erasure runs [b]before[/b] anchored tiles are restored — anchors always win over erased positions.
+[*] [b]Right-click[/b] the Reality Eraser in your inventory to immediately clear all marked tiles now. The item is [b]never consumed[/b].
+[*] The erasure limit is much higher than the anchor limit: [b]50,000 tiles[/b] at the start, up to [b]1,000,000[/b] after Moon Lord.
 [/list]
 
 [b]• Guide NPC Dialogue[/b]
 Ask the Guide NPC about the Reality Anchor. Click the [b]Crafting[/b] button during Guide chat to open the Reality Anchor info page — he'll explain how anchoring, chest persistence, and manual restore work.
 
+[b]• Player Position Persistence[/b]
+Your last position in the world is saved when you exit and restored when you return — you always pick up exactly where you left off.
+
 [b]• World Progress Persistence[/b]
-Automatically saves bosses, invasions, Hardmode, ore tiers, and progression flags to a JSON file linked to your world.
+Automatically saves bosses, invasions, Hardmode, ore tiers, progression flags, and town NPC roster to a JSON file linked to your world.
 
 [b]• Hardmode Toggle[/b]
 [code]/hardmode on[/code]
@@ -51,4 +70,4 @@ View world progression and days until next auto-regen:
 
 ---
 
-[b]More features are planned. Rate the mod to support development![/b]
+[b]Rate the mod if you enjoy it![/b]

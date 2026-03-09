@@ -106,11 +106,6 @@ namespace DynamicWorlds
 
         // Detect midnight (dayTime → night transition) to fire the regen.
         private bool _wasDay = false;
-        private bool _pendingRegen = false;
-
-        // We need a second pass in PostUpdateTime for the midnight check.
-        // Override is called once, so combine both checks there.
-        // Re-declare with a helper flag approach instead.
 
         public override void PreUpdateTime()
         {

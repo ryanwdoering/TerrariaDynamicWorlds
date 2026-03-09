@@ -1,54 +1,67 @@
-[b][h1]Dynamic Worlds – Persistent World Progression + World Regeneration[/h1][/b]
+Dynamic Worlds – Persistent World Progression + World Regeneration
 
 Dynamic Worlds is a lightweight utility mod that lets you regenerate your Terraria world layout WITHOUT losing your bosses, Hardmode status, ore tiers, or event progression.
 
-Whether you want a fresh world layout or a new biome distribution—but don't want to repeat early-game progression—this mod preserves your world's identity and upgrades while refreshing terrain.
+Whether you want a fresh world layout or a new biome distribution — but don't want to repeat early-game progression — this mod preserves your world's identity and upgrades while refreshing terrain.
 
 ---
 
-[h2]⭐ Features[/h2]
+⭐ Features
 
-[b]• World Regeneration with Progress Kept[/b]
-Use:
-[code]/regenworld[/code]
-Regenerates the world terrain while restoring all progression afterward. Bosses, Hardmode, ores, and invasions are all preserved.
+• World Regeneration with Progress Kept
+Use /regenworld to regenerate the world terrain while restoring all progression afterward. Bosses, Hardmode, ores, invasions, and town NPCs are all preserved. Pass an optional seed to get a repeatable result:
+  /regenworld
+  /regenworld 12345
+  /regenworld myseedname
+After teleporting, you receive 10 seconds of Featherfall so you land safely.
 
-[b]• Automatic Regeneration Scheduler[/b]
-The world automatically regenerates every [b]7 in-game days[/b]. A spooky countdown broadcasts in chat as the day approaches:
-[list]
-[*] [i]3 days out:[/i] "☠ The ground trembles. The world will regenerate in 3 days... ☠"
-[*] [i]1 day out:[/i] "☠ Something wicked approaches. The world regenerates TOMORROW. ☠"
-[*] [i]Dawn of regen day:[/i] "☠ The world stirs... regeneration begins at midnight. ☠"
-[*] [i]Midnight:[/i] The world tears itself apart and is reborn.
-[/list]
-The day counter saves with your world — it survives restarts. Check days remaining with [b]/snap[/b].
+• Automatic Regeneration Scheduler
+The world automatically regenerates every 7 in-game days. A spooky countdown broadcasts in chat as the day approaches:
+  - 3 days out: "☠ The ground trembles. The world will regenerate in 3 days... ☠"
+  - 1 day out: "☠ Something wicked approaches. The world regenerates TOMORROW. ☠"
+  - Dawn of regen day: "☠ The world stirs... regeneration begins at midnight. ☠"
+  - Midnight: The world tears itself apart and is reborn.
+The day counter saves with your world — it survives restarts. Check days remaining with /snap.
 
-[b]• Reality Anchor – Persistent Structures[/b]
-Mark tiles you want to [b]keep[/b] across every regeneration:
-[list]
-[*] [b]Left-click[/b] any tile while holding the Reality Anchor item to anchor or unanchor it. Anchored tiles glow so you can spot them easily.
-[*] [b]Chests and dressers[/b] save their exact contents — even after a full world regen.
-[*] [b]Right-click[/b] the Reality Anchor in your inventory to restore all anchored tiles immediately, without running a full regen.
-[/list]
+• Reality Anchor – Persistent Structures
+Mark tiles you want to keep across every regeneration. The Reality Anchor is given to you automatically when you first enter a world.
+  - Left-click any tile while holding the Reality Anchor to anchor or unanchor it. Anchored tiles glow while the item is held.
+  - Click and drag to anchor or unanchor a whole rectangular area at once.
+  - Chests and dressers save their exact contents — items included.
+  - Anchor your bed to preserve your personal spawn point. The mod validates the bed tile survived before reasserting your spawn.
+  - Right-click the Reality Anchor in your inventory to restore all anchored tiles immediately, without running a full regen. The item is never consumed.
+  - The anchor limit scales with boss progression: 5,000 tiles at the start, up to 100,000 after Moon Lord.
+  - The tooltip shows your current count, cap, fill level, and whether your bed is anchored.
 
-[b]• Guide NPC Dialogue[/b]
-Ask the Guide NPC about the Reality Anchor. Click the [b]Crafting[/b] button during Guide chat to open the Reality Anchor info page — he'll explain how anchoring, chest persistence, and manual restore work.
+• Reality Eraser – Guaranteed Empty Tiles
+Mark tiles to be cleared to empty space after every world regen. The Reality Eraser is given to you alongside the Reality Anchor.
+  - Left-click any tile while holding the Reality Eraser to mark or unmark it for erasure.
+  - Click and drag to mark or unmark a whole rectangular area at once.
+  - Erasure runs before anchored tiles are restored — anchors always win over erased positions.
+  - Right-click the Reality Eraser in your inventory to immediately clear all marked tiles now. The item is never consumed.
+  - The erasure limit is much higher than the anchor limit: 50,000 tiles at the start, up to 1,000,000 after Moon Lord.
 
-[b]• World Progress Persistence[/b]
-Automatically saves bosses, invasions, Hardmode, ore tiers, and progression flags to a JSON file linked to your world.
+• Guide NPC Dialogue
+Ask the Guide NPC about the Reality Anchor. Click the Crafting button during Guide chat to open the Reality Anchor info page — he'll explain how anchoring, chest persistence, and manual restore work.
 
-[b]• Hardmode Toggle[/b]
-[code]/hardmode on[/code]
-[code]/hardmode off[/code]
+• Player Position Persistence
+Your last position in the world is saved when you exit and restored when you return — you always pick up exactly where you left off.
 
-[b]• Boss/Event Flags Editing[/b]
-[code]/down eye[/code]
-[code]/down plantera[/code]
+• World Progress Persistence
+Automatically saves bosses, invasions, Hardmode, ore tiers, progression flags, and town NPC roster to a JSON file linked to your world.
 
-[b]• Snapshot Debugging[/b]
+• Hardmode Toggle
+  /hardmode on
+  /hardmode off
+
+• Boss/Event Flags Editing
+  /down eye
+  /down plantera
+
+• Snapshot Debugging
 View world progression and days until next auto-regen:
-[code]/snap[/code]
+  /snap
 
 ---
 
-[b]More features are planned. Rate the mod to support development![/b]
+Rate the mod if you enjoy it!

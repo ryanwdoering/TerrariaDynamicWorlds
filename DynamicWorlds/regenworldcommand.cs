@@ -13,7 +13,7 @@ namespace DynamicWorlds
     {
         private static bool regenRunning = false;
 
-        public static void RegenerateWorldWithProgress()
+        public static void RegenerateWorldWithProgress(string seedOverride = null)
         {
             if (regenRunning)
             {
@@ -42,7 +42,27 @@ namespace DynamicWorlds
                 WorldProgressUtil.PrintSnapshotToChat("Before regen", before);
                 AnchoredTileSystem.RefreshAllChestSnapshots();
 
-                int newSeed = (int)(DateTime.Now.Ticks & 0x7FFFFFFF);
+                // Snapshot personal spawn point before worldgen wipes state.
+                Player p = Main.LocalPlayer;
+                int savedSpawnX = p.SpawnX;
+                int savedSpawnY = p.SpawnY;
+
+                // Resolve seed: explicit arg → parse as int or hash the string, else random.
+                int newSeed;
+                if (!string.IsNullOrWhiteSpace(seedOverride))
+                {
+                    if (int.TryParse(seedOverride, out int parsedSeed))
+                        newSeed = parsedSeed & 0x7FFFFFFF;
+                    else
+                        newSeed = Math.Abs(seedOverride.GetHashCode()) & 0x7FFFFFFF;
+
+                    Main.NewText($"Using seed: {seedOverride} → {newSeed}", 180, 180, 255);
+                }
+                else
+                {
+                    newSeed = (int)(DateTime.Now.Ticks & 0x7FFFFFFF);
+                }
+
                 if (Main.ActiveWorldFileData != null)
                     Main.ActiveWorldFileData.SetSeed(newSeed.ToString());
 
@@ -57,14 +77,57 @@ namespace DynamicWorlds
                 // Re-apply all boss/hardmode/ore progression
                 WorldProgressUtil.Apply(before);
 
+                // First clear all tiles marked for erasure, then restore anchored tiles.
+                // Order matters: erasure runs on the freshly generated world before anchors
+                // are written back, so anchored tiles always win over erased positions.
+                ErasedTileSystem.ClearAllErasedTiles();
+
                 // Restore every anchored tile and chest
                 AnchoredTileSystem.RestoreAllAnchoredTiles();
 
-                // Teleport local player to the new spawn
-                Player p = Main.LocalPlayer;
-                Vector2 spawnPos = new Vector2(Main.spawnTileX * 16, Main.spawnTileY * 16);
+                // Teleport local player to the new spawn.
+                // Priority: personal spawn point (bed) if it is anchored AND still valid → world spawn.
+                // We assert SpawnX/SpawnY AFTER RestoreAllAnchoredTiles so the bed tile
+                // is already back in the world before vanilla's CheckSpawn runs.
+                Vector2 spawnPos;
+
+                bool hasPersonalSpawn = savedSpawnX >= 0 && savedSpawnY >= 0;
+                bool spawnIsAnchored  = hasPersonalSpawn &&
+                    AnchoredTileSystem.AnchoredTiles.ContainsKey(new Terraria.DataStructures.Point16(savedSpawnX, savedSpawnY));
+
+                // Validate the bed tile actually survived restoration (CheckSpawn checks
+                // that the tile at SpawnY-1 is a valid spawn point and the area is clear).
+                bool spawnIsValid = spawnIsAnchored && Player.CheckSpawn(savedSpawnX, savedSpawnY);
+
+                if (spawnIsValid)
+                {
+                    // Re-assert personal spawn AFTER the bed is restored so vanilla accepts it.
+                    p.SpawnX = savedSpawnX;
+                    p.SpawnY = savedSpawnY;
+                    // Spawn 3 tiles above the bed so the player isn't clipping into it.
+                    spawnPos = new Vector2(savedSpawnX * 16, savedSpawnY * 16 - 48);
+                    Main.NewText("Your anchored bed survived — spawning there.", 180, 255, 180);
+                }
+                else
+                {
+                    // Clear the stale bed spawn — the bed no longer exists in the new world.
+                    p.SpawnX = -1;
+                    p.SpawnY = -1;
+                    // Spawn 3 tiles above world spawn to avoid clipping into terrain.
+                    spawnPos = new Vector2(Main.spawnTileX * 16, Main.spawnTileY * 16 - 48);
+
+                    if (spawnIsAnchored && !spawnIsValid)
+                        Main.NewText("Your bed was anchored but failed validation — spawning at world spawn.", 255, 150, 80);
+                    else if (hasPersonalSpawn)
+                        Main.NewText("Your bed was not anchored — spawning at world spawn.", 255, 200, 100);
+                }
+
                 p.Teleport(spawnPos, 1);
                 p.fallStart = (int)(p.position.Y / 16f);
+
+                // 10 seconds of featherfall so the player lands safely after teleport.
+                // Buff durations are in game ticks (60 ticks = 1 second).
+                p.AddBuff(Terraria.ID.BuffID.Featherfall, 60 * 10);
 
                 var after = WorldProgressUtil.Capture();
                 WorldProgressUtil.PrintSnapshotToChat("After regen", after);
@@ -83,13 +146,15 @@ namespace DynamicWorlds
     {
         public override CommandType Type => CommandType.Chat;
         public override string Command => "regenworld";
-        public override string Usage => "/regenworld";
+        public override string Usage => "/regenworld [seed]";
         public override string Description =>
-            "Regenerates the world layout while keeping Hardmode, ores, bosses, invasions, etc. (single-player only).";
+            "Regenerates the world layout while keeping Hardmode, ores, bosses, invasions, etc. " +
+            "Optionally pass a seed: /regenworld 12345 or /regenworld myseedname (single-player only).";
 
         public override void Action(CommandCaller caller, string input, string[] args)
         {
-            SingleplayerRegenHelper.RegenerateWorldWithProgress();
+            string seed = args.Length > 0 ? args[0] : null;
+            SingleplayerRegenHelper.RegenerateWorldWithProgress(seed);
         }
     }
     

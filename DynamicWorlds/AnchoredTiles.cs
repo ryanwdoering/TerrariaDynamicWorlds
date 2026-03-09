@@ -770,26 +770,29 @@ namespace DynamicWorlds
         {
             Item.width        = 32;
             Item.height       = 32;
-            Item.useStyle     = ItemUseStyleID.HoldUp;
-            Item.useTime      = 1;
-            Item.useAnimation = 1;
+            Item.useStyle     = ItemUseStyleID.Swing;
+            Item.useTime      = 20;
+            Item.useAnimation = 20;
             Item.rare         = ItemRarityID.LightRed;
             Item.value        = Item.buyPrice(gold: 1);
             Item.maxStack     = 1;
             Item.consumable   = false;
             Item.noUseGraphic = false;
-            Item.UseSound     = null;
+            Item.UseSound     = SoundID.Item1;
         }
 
         public override bool CanUseItem(Player player)
         {
-            // Returning false keeps the item "held" without triggering vanilla use logic.
-            // All drag logic is handled in RealityAnchorPlayer.PostUpdate.
-            return false;
+            // Allow vanilla to run the swing animation, but do nothing on use —
+            // all anchor/drag logic is handled in RealityAnchorPlayer.PostUpdate.
+            return true;
         }
 
         // Right-click in inventory: manually restore all anchored tiles
         public override bool CanRightClick() => true;
+
+        // Prevent the item from being consumed on right-click.
+        public override bool ConsumeItem(Player player) => false;
 
         public override void RightClick(Player player)
         {
@@ -812,14 +815,47 @@ namespace DynamicWorlds
         {
             int count = AnchoredTileSystem.AnchoredTiles.Count;
             int cap   = AnchoredTileSystem.GetTileCap();
-            string status = count == 0
-                ? $"No tiles anchored. (0/{cap})"
-                : $"{count}/{cap} tile{(count == 1 ? "" : "s")} anchored.";
 
-            tooltips.Add(new TooltipLine(Mod, "DynamicWorldsStatus", status));
+            // ── Anchor count / cap ────────────────────────────────────────
+            float fill = cap > 0 ? (float)count / cap : 1f;
+            Color countColor = fill < 0.75f ? Color.LightGreen
+                             : fill < 0.95f ? Color.Orange
+                             :                Color.Red;
 
+            string countLine = count == 0
+                ? $"No tiles anchored  (0 / {cap})"
+                : $"{count} / {cap} tile{(count == 1 ? "" : "s")} anchored";
+
+            tooltips.Add(new TooltipLine(Mod, "AnchorCount", countLine)
+                { OverrideColor = countColor });
+
+            // ── Cap warning ───────────────────────────────────────────────
             if (count >= cap)
-                tooltips.Add(new TooltipLine(Mod, "DynamicWorldsCap", "Anchor cap reached! Defeat more bosses to unlock more slots.") { OverrideColor = Color.Orange });
+                tooltips.Add(new TooltipLine(Mod, "AnchorCapWarning",
+                    "⚠ Cap reached! Defeat more bosses to unlock more slots.")
+                    { OverrideColor = Color.Orange });
+
+            // ── Bed / spawn hint ──────────────────────────────────────────
+            Player p = Main.LocalPlayer;
+            bool hasBed = p.SpawnX >= 0 && p.SpawnY >= 0;
+            if (hasBed)
+            {
+                bool bedAnchored = AnchoredTileSystem.AnchoredTiles
+                    .ContainsKey(new Point16(p.SpawnX, p.SpawnY));
+
+                string bedLine = bedAnchored
+                    ? "✔ Your bed is anchored — spawn point will survive regen."
+                    : "✘ Your bed is not anchored — spawn will reset on regen.";
+
+                tooltips.Add(new TooltipLine(Mod, "AnchorBedStatus", bedLine)
+                    { OverrideColor = bedAnchored ? Color.LightGreen : Color.IndianRed });
+            }
+
+            // ── Right-click hint ─────────────────────────────────────────
+            if (count > 0)
+                tooltips.Add(new TooltipLine(Mod, "AnchorRightClick",
+                    "Right-click to restore all anchored tiles now.")
+                    { OverrideColor = Color.LightBlue });
         }
     }
 }

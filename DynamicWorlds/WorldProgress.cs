@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using Terraria;
 using Terraria.ID;
@@ -68,6 +70,10 @@ namespace DynamicWorlds
         public int cobaltTier;
         public int mythrilTier;
         public int adamantiteTier;
+
+        // Town NPCs present in the world before regen (by NPC type ID).
+        // These will be respawned at spawn after world regeneration.
+        public List<int> collectedNpcTypes = new();
     }
 
     public static class WorldProgressUtil
@@ -156,6 +162,13 @@ namespace DynamicWorlds
                 adamantiteTier = WorldGen.SavedOreTiers.Adamantite
             };
 
+            // Collect all active town NPCs (alive, flagged as townNPC, valid type).
+            s.collectedNpcTypes = Main.npc
+                .Where(n => n.active && n.townNPC && n.type > 0)
+                .Select(n => n.type)
+                .Distinct()
+                .ToList();
+
             return s;
         }
 
@@ -226,6 +239,19 @@ namespace DynamicWorlds
                  WorldGen.SavedOreTiers.Adamantite <= 0))
             {
                 ChooseHardmodeOresVanillaStyle();
+            }
+
+            // Respawn all town NPCs that were present before the regen.
+            // SpawnOnPlayer places the NPC near the local player's spawn.
+            if (s.collectedNpcTypes != null)
+            {
+                foreach (int npcType in s.collectedNpcTypes)
+                {
+                    // Skip if this NPC type is already alive in the world.
+                    bool alreadyPresent = Main.npc.Any(n => n.active && n.type == npcType);
+                    if (!alreadyPresent)
+                        NPC.SpawnOnPlayer(Main.myPlayer, npcType);
+                }
             }
         }
 
@@ -347,10 +373,61 @@ namespace DynamicWorlds
                 $"{Flag("FrostMoon", s.downedFrostMoonIceQueen || s.downedFrostMoonSantank || s.downedFrostMoonTree)}";
 
             Main.NewText($"  Invasions    → {invasions}", 200, 220, 200);
+
+            // Town NPCs
+            if (s.collectedNpcTypes != null && s.collectedNpcTypes.Count > 0)
+            {
+                string npcNames = string.Join(", ", s.collectedNpcTypes.Select(NpcName));
+                Main.NewText($"  Town NPCs    → {npcNames}", 200, 200, 255);
+            }
+            else
+            {
+                Main.NewText($"  Town NPCs    → (none)", 200, 200, 255);
+            }
         }
 
         private static string Flag(string name, bool downed)
             => downed ? $"[{name}✓]" : $"[{name} ]";
+
+        private static string NpcName(int npcType)
+        {
+            switch (npcType)
+            {
+                case NPCID.Guide:             return "Guide";
+                case NPCID.Merchant:          return "Merchant";
+                case NPCID.Nurse:             return "Nurse";
+                case NPCID.Demolitionist:     return "Demolitionist";
+                case NPCID.DyeTrader:         return "Dye Trader";
+                case NPCID.Dryad:             return "Dryad";
+                case NPCID.Painter:           return "Painter";
+                case NPCID.GoblinTinkerer:    return "Goblin Tinkerer";
+                case NPCID.Clothier:          return "Clothier";
+                case NPCID.ArmsDealer:        return "Arms Dealer";
+                case NPCID.Mechanic:          return "Mechanic";
+                case NPCID.SantaClaus:        return "Santa Claus";
+                case NPCID.Truffle:           return "Truffle";
+                case NPCID.Wizard:            return "Wizard";
+                case NPCID.Stylist:           return "Stylist";
+                case NPCID.Pirate:            return "Pirate";
+                case NPCID.Steampunker:       return "Steampunker";
+                case NPCID.Cyborg:            return "Cyborg";
+                case NPCID.TaxCollector:      return "Tax Collector";
+                case NPCID.DD2Bartender:      return "Tavernkeep";
+                case NPCID.Golfer:            return "Golfer";
+                case NPCID.BestiaryGirl:      return "Zoologist";
+                case NPCID.Princess:          return "Princess";
+                case NPCID.TownSlimeBlue:
+                case NPCID.TownSlimePurple:
+                case NPCID.TownSlimeRed:
+                case NPCID.TownSlimeYellow:
+                case NPCID.TownSlimeGreen:
+                case NPCID.TownSlimeOld:
+                case NPCID.TownSlimeCopper:
+                case NPCID.TownSlimeRainbow:  return "Town Slime";
+                case NPCID.OldMan:            return "Old Man";
+                default:                      return $"NPC({npcType})";
+            }
+        }
 
         private static string OreName(int tileId)
         {
