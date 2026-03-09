@@ -2,35 +2,52 @@
 
 Dynamic Worlds is a lightweight utility mod that lets you regenerate your Terraria world layout WITHOUT losing your bosses, Hardmode status, ore tiers, or event progression.
 
-Whether you want a fresh world layout or a new biome distribution—but don’t want to repeat early-game progression—this mod preserves your world’s identity and upgrades while refreshing terrain.
+Whether you want a fresh world layout or a new biome distribution—but don't want to repeat early-game progression—this mod preserves your world's identity and upgrades while refreshing terrain.
 
 ---
 
 [h2]⭐ Features[/h2]
 
-[b]• World Progress Persistence[/b]  
-Automatically saves bosses, invasions, Hardmode, ore tiers, and progression flags to a JSON file linked to your world.
-
-[b]• World Regeneration with Progress Kept[/b]  
+[b]• World Regeneration with Progress Kept[/b]
 Use:
 [code]/regenworld[/code]
-Regenerates the world terrain while restoring all progression afterward.
+Regenerates the world terrain while restoring all progression afterward. Bosses, Hardmode, ores, and invasions are all preserved.
 
-[b]• Hardmode Toggle[/b]  
-[code]/hardmode on[/code]  
+[b]• Automatic Regeneration Scheduler[/b]
+The world automatically regenerates every [b]7 in-game days[/b]. A spooky countdown broadcasts in chat as the day approaches:
+[list]
+[*] [i]3 days out:[/i] "☠ The ground trembles. The world will regenerate in 3 days... ☠"
+[*] [i]1 day out:[/i] "☠ Something wicked approaches. The world regenerates TOMORROW. ☠"
+[*] [i]Dawn of regen day:[/i] "☠ The world stirs... regeneration begins at midnight. ☠"
+[*] [i]Midnight:[/i] The world tears itself apart and is reborn.
+[/list]
+The day counter saves with your world — it survives restarts. Check days remaining with [b]/snap[/b].
+
+[b]• Reality Anchor – Persistent Structures[/b]
+Mark tiles you want to [b]keep[/b] across every regeneration:
+[list]
+[*] [b]Left-click[/b] any tile while holding the Reality Anchor item to anchor or unanchor it. Anchored tiles glow so you can spot them easily.
+[*] [b]Chests and dressers[/b] save their exact contents — even after a full world regen.
+[*] [b]Right-click[/b] the Reality Anchor in your inventory to restore all anchored tiles immediately, without running a full regen.
+[/list]
+
+[b]• Guide NPC Dialogue[/b]
+Ask the Guide NPC about the Reality Anchor. Click the [b]Crafting[/b] button during Guide chat to open the Reality Anchor info page — he'll explain how anchoring, chest persistence, and manual restore work.
+
+[b]• World Progress Persistence[/b]
+Automatically saves bosses, invasions, Hardmode, ore tiers, and progression flags to a JSON file linked to your world.
+
+[b]• Hardmode Toggle[/b]
+[code]/hardmode on[/code]
 [code]/hardmode off[/code]
 
-[b]• Boss/Event Flags Editing[/b]  
-[code]/down eye[/code]  
+[b]• Boss/Event Flags Editing[/b]
+[code]/down eye[/code]
 [code]/down plantera[/code]
 
-[b]• Snapshot Debugging[/b]  
-View world progression at any time:
+[b]• Snapshot Debugging[/b]
+View world progression and days until next auto-regen:
 [code]/snap[/code]
-
-[b]• Upcoming Major Feature: Permanent User Structures[/b]  
-Future versions will allow you to **flag builds, houses, or regions as “persistent,”** allowing them to survive world regenerations intact—even as terrain around them changes.  
-This will enable roguelike worlds, modular bases, map editors, and safe persistent staging areas.
 
 ---
 

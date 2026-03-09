@@ -21,62 +21,51 @@ namespace DynamicWorlds
                 return;
             }
 
+            if (Main.netMode != NetmodeID.SinglePlayer)
+            {
+                Main.NewText("This command only works in single player.", 255, 80, 80);
+                return;
+            }
+
+            if (Main.npc.Any(n => n.active && n.boss))
+            {
+                Main.NewText("You cannot regenerate the world while a boss is alive.", 255, 80, 80);
+                return;
+            }
+
             regenRunning = true;
+
             try
             {
-                if (Main.netMode != NetmodeID.SinglePlayer)
-                {
-                    Main.NewText("This command only works in single player.", 255, 80, 80);
-                    return;
-                }
-
-                if (Main.npc.Any(n => n.active && n.boss))
-                {
-                    Main.NewText("You cannot regenerate the world while a boss is alive.", 255, 80, 80);
-                    return;
-                }
-
-                // Capture current progression (Hardmode, bosses, ore tiers, etc.)
+                // Capture progression and chest snapshots before anything is wiped
                 var before = WorldProgressUtil.Capture();
                 WorldProgressUtil.PrintSnapshotToChat("Before regen", before);
+                AnchoredTileSystem.RefreshAllChestSnapshots();
 
-                Main.NewText("Regenerating world with preserved progression...", 200, 200, 255);
-
-                // Pick a fresh random seed
                 int newSeed = (int)(DateTime.Now.Ticks & 0x7FFFFFFF);
-
-                // Update the world file's seed if possible (not strictly required)
                 if (Main.ActiveWorldFileData != null)
-                {
                     Main.ActiveWorldFileData.SetSeed(newSeed.ToString());
-                }
 
-                // Run vanilla worldgen again in-place
                 WorldGen.gen = true;
-                Main.gameMenu = true; // worldgen expects this
-
                 WorldGen.clearWorld();
 
-                GenerationProgress progress = new GenerationProgress
-                {
-                    Message = "Generating a new world..."
-                };
-
-                WorldGen.GenerateWorld(newSeed, progress);
+                var prog = new GenerationProgress();
+                WorldGen.GenerateWorld(newSeed, prog);
 
                 WorldGen.gen = false;
-                Main.gameMenu = false;
 
-                // Re-apply progression flags and ore tiers to this fresh world
+                // Re-apply all boss/hardmode/ore progression
                 WorldProgressUtil.Apply(before);
 
-                // Teleport the local player to the new spawn
+                // Restore every anchored tile and chest
+                AnchoredTileSystem.RestoreAllAnchoredTiles();
+
+                // Teleport local player to the new spawn
                 Player p = Main.LocalPlayer;
                 Vector2 spawnPos = new Vector2(Main.spawnTileX * 16, Main.spawnTileY * 16);
                 p.Teleport(spawnPos, 1);
                 p.fallStart = (int)(p.position.Y / 16f);
 
-                // Capture progression again after regen+apply, to verify behavior
                 var after = WorldProgressUtil.Capture();
                 WorldProgressUtil.PrintSnapshotToChat("After regen", after);
 
@@ -84,7 +73,8 @@ namespace DynamicWorlds
             }
             finally
             {
-                regenRunning = false;
+                WorldGen.gen  = false;
+                regenRunning  = false;
             }
         }
     }
@@ -277,6 +267,7 @@ namespace DynamicWorlds
         {
             var snap = WorldProgressUtil.Capture();
             WorldProgressUtil.PrintSnapshotToChat("Snapshot", snap);
+            Main.NewText(WorldRegenScheduler.GetStatusText(), 200, 80, 255);
         }
     }
 }

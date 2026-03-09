@@ -1,2 +1,19 @@
 # This file will automatically update with entries for new content after a build and reload.
 
+Mods: {
+    DynamicWorlds: {
+        Items: {
+            RealityAnchor: {
+                DisplayName: Reality Anchor
+                Tooltip:
+                    '''
+                    Left-click a tile in the world to anchor or unanchor it for preservation.
+                    Anchored tiles are restored exactly as they were after every world regeneration.
+                    Containers (chests, dressers) also preserve their contents when anchored.
+                    Right-click this item in your inventory to manually restore all anchored tiles now.
+                    Hold this item to see all currently anchored tiles highlighted in the world.
+                    '''
+            }
+        }
+    }
+}
