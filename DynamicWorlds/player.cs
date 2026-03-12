@@ -1,6 +1,7 @@
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Terraria;
+using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.ModLoader.IO;
 
@@ -8,9 +9,17 @@ namespace DynamicWorlds
 {
     public class DynamicWorldsPlayer : ModPlayer
     {
-        // Last saved world position in tile coordinates.
+        // Last saved world position in tile coordinates. -1 = no saved position.
         private int _savedTileX = -1;
         private int _savedTileY = -1;
+
+        // Called by regenworldcommand after it has already teleported the player to spawn,
+        // so the pre-regen position is not restored on the next world load.
+        public void ClearSavedPosition()
+        {
+            _savedTileX = -1;
+            _savedTileY = -1;
+        }
 
         public override void OnEnterWorld()
         {
@@ -26,16 +35,39 @@ namespace DynamicWorlds
             if (!hasEraser)
                 Player.QuickSpawnItem(Player.GetSource_GiftOrReward(), eraserType);
 
-            // Teleport to last saved position if we have one.
-            if (_savedTileX > 0 && _savedTileY > 0)
+            // Gift one Building Anchor if not already in inventory
+            int baType = ModContent.ItemType<BuildingAnchorItem>();
+            bool hasBA = Player.inventory.Any(i => i != null && i.type == baType);
+            if (!hasBA)
+                Player.QuickSpawnItem(Player.GetSource_GiftOrReward(), baType);
+
+            // Restore last position — singleplayer only, and only if the destination
+            // tiles are actually clear so the player doesn't clip into solid terrain.
+            if (Main.netMode == NetmodeID.SinglePlayer && _savedTileX > 0 && _savedTileY > 0)
             {
-                // Convert tile coords to world pixels, offset up slightly so we're not inside a block.
-                Vector2 pos = new Vector2(_savedTileX * 16f, _savedTileY * 16f - 48f);
-                Player.Teleport(pos, 1);
-                Player.fallStart = (int)(Player.position.Y / 16f);
+                if (IsPositionSafe(_savedTileX, _savedTileY))
+                {
+                    Vector2 pos = new Vector2(_savedTileX * 16f, _savedTileY * 16f - 48f);
+                    Player.Teleport(pos, 1);
+                    Player.fallStart = (int)(Player.position.Y / 16f);
+                }
+                // Always clear after attempting — don't persist a bad position.
                 _savedTileX = -1;
                 _savedTileY = -1;
             }
+        }
+
+        // Returns true if the two tiles at (x, y) and (x, y-1) are both empty,
+        // meaning the player can stand there without clipping into terrain.
+        private static bool IsPositionSafe(int x, int y)
+        {
+            if (!WorldGen.InWorld(x, y, 5) || !WorldGen.InWorld(x, y - 1, 5))
+                return false;
+
+            Tile feet = Framing.GetTileSafely(x, y);
+            Tile head = Framing.GetTileSafely(x, y - 1);
+
+            return !feet.HasTile && !head.HasTile;
         }
 
         public override void PreSavePlayer()
@@ -49,13 +81,13 @@ namespace DynamicWorlds
 
         public override void SaveData(TagCompound tag)
         {
-            // Last known position
+            // Last known position — only save if we have valid coords.
             if (_savedTileX > 0 && _savedTileY > 0)
             {
                 tag["lastTileX"] = _savedTileX;
                 tag["lastTileY"] = _savedTileY;
             }
-            else if (Player.active)
+            else if (Player.active && Main.netMode == NetmodeID.SinglePlayer)
             {
                 // PreSavePlayer may not have fired yet in all paths — fall back to current pos.
                 tag["lastTileX"] = (int)(Player.position.X / 16f);

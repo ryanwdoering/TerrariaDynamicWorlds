@@ -1,35 +1,67 @@
 # This file will automatically update with entries for new content after a build and reload.
 
 Mods: {
-    DynamicWorlds: {
-        Items: {
-            RealityAnchor: {
-                DisplayName: Reality Anchor
-                Tooltip:
-                    '''
-                    Left-click a tile to anchor it. Click again to unanchor.
-                    Click and drag to anchor or unanchor a whole area at once.
-                    Anchored tiles survive every world regeneration — terrain, walls, wires, and liquids included.
-                    Containers (chests, dressers) also remember their contents when anchored.
-                    Anchor your bed to keep your spawn point after a regen.
-                    Right-click in your inventory to manually restore all anchored tiles at any time.
-                    Hold to see all currently anchored tiles highlighted in the world.
-                    There is a limit to how many tiles you can anchor — anchor what matters most.
-                    '''
-            }
-            RealityEraser: {
-                DisplayName: Reality Eraser
-                Tooltip:
-                    '''
-                    Left-click a tile to mark it for erasure. Click again to unmark.
-                    Click and drag to mark or unmark a whole area at once.
-                    Marked tiles are cleared to empty space after every world regeneration.
-                    Erasure happens before anchored tiles are restored, so anchors always win.
-                    Right-click in your inventory to erase all marked tiles immediately.
-                    Hold to see all tiles marked for erasure highlighted in the world.
-                    The erasure limit is much higher than the anchor limit.
-                    '''
-            }
-        }
-    }
+	DynamicWorlds: {
+		Items: {
+			RealityAnchor: {
+				DisplayName: Reality Anchor
+				Tooltip:
+					'''
+					Left-click a tile to anchor it. Click again to unanchor.
+					Click and drag to anchor or unanchor a whole area at once.
+					Anchored tiles survive every world regeneration — terrain, walls, wires, and liquids included.
+					Containers (chests, dressers) also remember their contents when anchored.
+					Anchor your bed to keep your spawn point after a regen.
+					Right-click in your inventory to manually restore all anchored tiles at any time.
+					Hold to see all currently anchored tiles highlighted in the world.
+					There is a limit to how many tiles you can anchor — anchor what matters most.
+					'''
+			}
+
+			RealityEraser: {
+				DisplayName: Reality Eraser
+				Tooltip:
+					'''
+					Left-click a tile to mark it for erasure. Click again to unmark.
+					Click and drag to mark or unmark a whole area at once.
+					Marked tiles are cleared to empty space after every world regeneration.
+					Erasure happens before anchored tiles are restored, so anchors always win.
+					Right-click in your inventory to erase all marked tiles immediately.
+					Hold to see all tiles marked for erasure highlighted in the world.
+					The erasure limit is much higher than the anchor limit.
+					'''
+			}
+
+			BuildingAnchorItem: {
+				DisplayName: Building Anchor
+				Tooltip:
+					'''
+					Click and drag to define a protected building zone.
+					Drag multiple times to protect multiple separate buildings with one anchor.
+					All tiles inside each zone are saved and restored after every world regen.
+					Each structure is translated up or down so its base sits at the new ground level.
+					Any gap between a structure and the ground is filled with terrain.
+					Zones on different anchors cannot overlap — each tile belongs to one zone only.
+					Right-click to clear all zones on this anchor.
+					'''
+			}
+		}
+	}
+}
+
+Items: {
+	BuildingAnchorItem: {
+		DisplayName: Building Anchor Item
+		Tooltip: ""
+	}
+
+	RealityAnchor: {
+		DisplayName: Reality Anchor
+		Tooltip: ""
+	}
+
+	RealityEraser: {
+		DisplayName: Reality Eraser
+		Tooltip: ""
+	}
 }

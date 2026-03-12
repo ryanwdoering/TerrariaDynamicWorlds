@@ -82,48 +82,58 @@ namespace DynamicWorlds
                 // are written back, so anchored tiles always win over erased positions.
                 ErasedTileSystem.ClearAllErasedTiles();
 
+                // Restore building zones (translated to new ground level) before regular
+                // anchored tiles, so per-tile anchors can override zone tiles if needed.
+                BuildingAnchorSystem.RestoreAllZones();
+
                 // Restore every anchored tile and chest
                 AnchoredTileSystem.RestoreAllAnchoredTiles();
 
                 // Teleport local player to the new spawn.
-                // Priority: personal spawn point (bed) if it is anchored AND still valid → world spawn.
-                // We assert SpawnX/SpawnY AFTER RestoreAllAnchoredTiles so the bed tile
-                // is already back in the world before vanilla's CheckSpawn runs.
+                // Priority: personal spawn point (bed) if it survived regen AND is valid.
+                // Building zone restore may have already updated p.SpawnX/Y to the
+                // translated position, so we read from p.SpawnX/Y after all restores.
                 Vector2 spawnPos;
 
                 bool hasPersonalSpawn = savedSpawnX >= 0 && savedSpawnY >= 0;
-                bool spawnIsAnchored  = hasPersonalSpawn &&
-                    AnchoredTileSystem.AnchoredTiles.ContainsKey(new Terraria.DataStructures.Point16(savedSpawnX, savedSpawnY));
 
-                // Validate the bed tile actually survived restoration (CheckSpawn checks
-                // that the tile at SpawnY-1 is a valid spawn point and the area is clear).
-                bool spawnIsValid = spawnIsAnchored && Player.CheckSpawn(savedSpawnX, savedSpawnY);
+                // Use the (possibly translated) spawn set by building zone restore,
+                // or fall back to the pre-regen saved value.
+                int effectiveSpawnX = (p.SpawnX >= 0) ? p.SpawnX : savedSpawnX;
+                int effectiveSpawnY = (p.SpawnY >= 0) ? p.SpawnY : savedSpawnY;
+
+                bool spawnIsAnchored = hasPersonalSpawn &&
+                    (AnchoredTileSystem.AnchoredTiles.ContainsKey(new Terraria.DataStructures.Point16(savedSpawnX, savedSpawnY)) ||
+                     p.SpawnX != savedSpawnX || p.SpawnY != savedSpawnY); // translated by building zone
+
+                // Validate the bed tile actually survived restoration.
+                bool spawnIsValid = effectiveSpawnX >= 0 && effectiveSpawnY >= 0 &&
+                                    Player.CheckSpawn(effectiveSpawnX, effectiveSpawnY);
 
                 if (spawnIsValid)
                 {
-                    // Re-assert personal spawn AFTER the bed is restored so vanilla accepts it.
-                    p.SpawnX = savedSpawnX;
-                    p.SpawnY = savedSpawnY;
-                    // Spawn 3 tiles above the bed so the player isn't clipping into it.
-                    spawnPos = new Vector2(savedSpawnX * 16, savedSpawnY * 16 - 48);
-                    Main.NewText("Your anchored bed survived — spawning there.", 180, 255, 180);
+                    p.SpawnX = effectiveSpawnX;
+                    p.SpawnY = effectiveSpawnY;
+                    spawnPos = new Vector2(effectiveSpawnX * 16, effectiveSpawnY * 16 - 48);
+                    Main.NewText("Your bed survived — spawning there.", 180, 255, 180);
                 }
                 else
                 {
                     // Clear the stale bed spawn — the bed no longer exists in the new world.
                     p.SpawnX = -1;
                     p.SpawnY = -1;
-                    // Spawn 3 tiles above world spawn to avoid clipping into terrain.
                     spawnPos = new Vector2(Main.spawnTileX * 16, Main.spawnTileY * 16 - 48);
 
-                    if (spawnIsAnchored && !spawnIsValid)
-                        Main.NewText("Your bed was anchored but failed validation — spawning at world spawn.", 255, 150, 80);
-                    else if (hasPersonalSpawn)
-                        Main.NewText("Your bed was not anchored — spawning at world spawn.", 255, 200, 100);
+                    if (hasPersonalSpawn)
+                        Main.NewText("Your bed was not preserved — spawning at world spawn.", 255, 200, 100);
                 }
 
                 p.Teleport(spawnPos, 1);
                 p.fallStart = (int)(p.position.Y / 16f);
+
+                // Clear the saved pre-regen position so OnEnterWorld doesn't teleport
+                // the player back into what is now solid terrain on the next world load.
+                p.GetModPlayer<DynamicWorldsPlayer>().ClearSavedPosition();
 
                 // 10 seconds of featherfall so the player lands safely after teleport.
                 // Buff durations are in game ticks (60 ticks = 1 second).
@@ -333,6 +343,111 @@ namespace DynamicWorlds
             var snap = WorldProgressUtil.Capture();
             WorldProgressUtil.PrintSnapshotToChat("Snapshot", snap);
             Main.NewText(WorldRegenScheduler.GetStatusText(), 200, 80, 255);
+        }
+    }
+
+    // /dwinfo — prints a summary of all saved anchored tiles, erased tiles, and building zones.
+    public class DwInfoCommand : ModCommand
+    {
+        public override CommandType Type => CommandType.Chat;
+        public override string Command => "dwinfo";
+        public override string Usage => "/dwinfo";
+        public override string Description =>
+            "Shows a summary of all anchored tiles, erased tiles, and building zones saved for this world.";
+
+        public override void Action(CommandCaller caller, string input, string[] args)
+        {
+            // ── Anchored tiles ────────────────────────────────────────────────
+            int anchorCount = AnchoredTileSystem.AnchoredTiles.Count;
+            int anchorCap   = AnchoredTileSystem.GetTileCap();
+            Main.NewText($"[Anchored Tiles] {anchorCount} / {anchorCap}", 100, 200, 255);
+
+            if (anchorCount > 0)
+            {
+                int minX = int.MaxValue, maxX = int.MinValue;
+                int minY = int.MaxValue, maxY = int.MinValue;
+                foreach (var pos in AnchoredTileSystem.AnchoredTiles.Keys)
+                {
+                    if (pos.X < minX) minX = pos.X;
+                    if (pos.X > maxX) maxX = pos.X;
+                    if (pos.Y < minY) minY = pos.Y;
+                    if (pos.Y > maxY) maxY = pos.Y;
+                }
+                Main.NewText($"  Bounding box: ({minX},{minY}) → ({maxX},{maxY})", 80, 170, 220);
+            }
+
+            // ── Erased tiles ──────────────────────────────────────────────────
+            int eraseCount = ErasedTileSystem.ErasedTiles.Count;
+            int eraseCap   = ErasedTileSystem.GetErasureCap();
+            Main.NewText($"[Erased Tiles]   {eraseCount} / {eraseCap}", 255, 120, 120);
+
+            if (eraseCount > 0)
+            {
+                int minX = int.MaxValue, maxX = int.MinValue;
+                int minY = int.MaxValue, maxY = int.MinValue;
+                foreach (var pos in ErasedTileSystem.ErasedTiles)
+                {
+                    if (pos.X < minX) minX = pos.X;
+                    if (pos.X > maxX) maxX = pos.X;
+                    if (pos.Y < minY) minY = pos.Y;
+                    if (pos.Y > maxY) maxY = pos.Y;
+                }
+                Main.NewText($"  Bounding box: ({minX},{minY}) → ({maxX},{maxY})", 220, 80, 80);
+            }
+
+            // ── Building zones ────────────────────────────────────────────────
+            int zoneCount = BuildingAnchorSystem.Zones.Count;
+            Main.NewText($"[Building Zones] {zoneCount} zone{(zoneCount == 1 ? "" : "s")}", 180, 255, 180);
+
+            foreach (var kv in BuildingAnchorSystem.Zones)
+            {
+                var z = kv.Value;
+                Main.NewText(
+                    $"  Zone #{z.Id}: ({z.TopLeft.X},{z.TopLeft.Y}) → ({z.BottomRight.X},{z.BottomRight.Y})  " +
+                    $"{z.Width}×{z.Height}  {z.Tiles.Count} tiles  groundY={z.SavedGroundY}",
+                    100, 220, 140);
+            }
+
+            if (anchorCount == 0 && eraseCount == 0 && zoneCount == 0)
+                Main.NewText("No Dynamic Worlds data saved for this world.", 180, 180, 180);
+        }
+    }
+
+    // /clearzones — removes all building zones from the world.
+    public class ClearZonesCommand : ModCommand
+    {
+        public override CommandType Type => CommandType.Chat;
+        public override string Command => "clearzones";
+        public override string Usage => "/clearzones";
+        public override string Description =>
+            "Removes all building anchor zones from the world (does not affect anchored or erased tiles).";
+
+        public override void Action(CommandCaller caller, string input, string[] args)
+        {
+            if (Main.netMode != NetmodeID.SinglePlayer)
+            {
+                Main.NewText("This command only works in single player.", 255, 80, 80);
+                return;
+            }
+
+            int count = BuildingAnchorSystem.Zones.Count;
+            if (count == 0)
+            {
+                Main.NewText("No building zones to clear.", 180, 180, 180);
+                return;
+            }
+
+            BuildingAnchorSystem.Zones.Clear();
+
+            // Also clear ZoneIds from every Building Anchor in the player's inventory
+            // so the items don't hold stale references.
+            foreach (var item in Main.LocalPlayer.inventory)
+            {
+                if (item?.ModItem is BuildingAnchorItem ba)
+                    ba.ZoneIds.Clear();
+            }
+
+            Main.NewText($"Cleared {count} building zone{(count == 1 ? "" : "s")}.", 255, 150, 100);
         }
     }
 }
