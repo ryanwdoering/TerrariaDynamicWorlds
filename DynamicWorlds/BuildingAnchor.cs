@@ -560,9 +560,20 @@ namespace DynamicWorlds
             }
 
             bool mouseHeld = Main.mouseLeft && !Main.LocalPlayer.mouseInterface;
+            bool shiftHeld = Main.keyState.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.LeftShift) || 
+                            Main.keyState.IsKeyDown(Microsoft.Xna.Framework.Input.Keys.RightShift);
             int  tx = (int)(Main.MouseWorld.X / 16f);
             int  ty = (int)(Main.MouseWorld.Y / 16f);
 
+            // Shift+Click: Select and remove a specific zone
+            if (shiftHeld && Main.mouseLeft && !_wasHoldingLastFrame && !Main.LocalPlayer.mouseInterface)
+            {
+                RemoveZoneAtPosition(new Point16(tx, ty), Player.HeldItem);
+                _wasHoldingLastFrame = true;
+                return;
+            }
+
+            // Normal drag: Create a new zone
             if (mouseHeld)
             {
                 if (!_wasHoldingLastFrame)
@@ -628,6 +639,42 @@ namespace DynamicWorlds
             Main.NewText(
                 $"Building zone #{newId} added ({modItem.ZoneIds.Count} total on this anchor): {zone.Width}×{zone.Height} ({area} tiles). Ground ref Y={zone.SavedGroundY}.",
                 100, 200, 255);
+        }
+
+        private void RemoveZoneAtPosition(Point16 clickPos, Item item)
+        {
+            var modItem = item.ModItem as BuildingAnchorItem;
+            if (modItem == null) return;
+
+            // Find which zone (if any) contains this click position
+            int zoneIdToRemove = -1;
+            foreach (int zoneId in modItem.ZoneIds)
+            {
+                if (BuildingAnchorSystem.Zones.TryGetValue(zoneId, out var zone))
+                {
+                    bool insideX = clickPos.X >= zone.TopLeft.X && clickPos.X <= zone.BottomRight.X;
+                    bool insideY = clickPos.Y >= zone.TopLeft.Y && clickPos.Y <= zone.BottomRight.Y;
+                    if (insideX && insideY)
+                    {
+                        zoneIdToRemove = zoneId;
+                        break;
+                    }
+                }
+            }
+
+            if (zoneIdToRemove != -1)
+            {
+                if (BuildingAnchorSystem.Zones.Remove(zoneIdToRemove))
+                {
+                    modItem.ZoneIds.Remove(zoneIdToRemove);
+                    SoundEngine.PlaySound(SoundID.Item14, Player.position);
+                    Main.NewText($"Building zone #{zoneIdToRemove} removed. ({modItem.ZoneIds.Count} remaining on this anchor)", 255, 150, 100);
+                }
+            }
+            else
+            {
+                Main.NewText("Shift+Click on a zone to remove it, or right-click to remove all zones.", 255, 200, 80);
+            }
         }
 
         public void CancelDrag()
@@ -720,9 +767,11 @@ namespace DynamicWorlds
                     }
                 }
                 if (validCount > 0)
+                {
                     tooltips.Add(new TooltipLine(Mod, "BAZoneHint",
-                        "Right-click to clear all zones on this anchor.")
+                        "Shift+Click to remove a zone, or Right-click to clear all zones.")
                         { OverrideColor = Color.LightBlue });
+                }
             }
             else
             {
