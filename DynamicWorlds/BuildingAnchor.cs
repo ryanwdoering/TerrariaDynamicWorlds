@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -204,22 +205,52 @@ namespace DynamicWorlds
 
             Main.NewText($"[BA] RestoreZone #{Id}: centerX={centerX} SavedGroundY={SavedGroundY} newGroundY={newGroundY} deltaY={deltaY} TL.Y={TopLeft.Y}→{newTopY} BR.Y={BottomRight.Y}→{newBottomY} worldSurface={Main.worldSurface:F0}", 120, 220, 255);
 
-            // 1. Clear the original footprint.
+            // 1. Fill terrain beneath the OLD footprint to prevent air pockets.
+            //    The building is moving, so we need to fill in the space it's leaving behind.
             for (int x = TopLeft.X; x <= BottomRight.X; x++)
             {
-                for (int y = TopLeft.Y - 5; y <= BottomRight.Y + 5; y++)
+                // Find ground starting from below the old building position
+                int groundY = Main.maxTilesY - 10;
+                for (int y = BottomRight.Y + 1; y < Main.maxTilesY - 15; y++)
                 {
                     if (!WorldGen.InWorld(x, y, 1)) continue;
-                    Framing.GetTileSafely(x, y).ClearEverything();
+                    
+                    int solidCount = 0;
+                    for (int check = y; check < Math.Min(y + 10, Main.maxTilesY); check++)
+                    {
+                        Tile checkTile = Framing.GetTileSafely(x, check);
+                        if (checkTile.HasTile)
+                            solidCount++;
+                        else
+                            break;
+                    }
+                    
+                    if (solidCount >= 10)
+                    {
+                        groundY = y;
+                        break;
+                    }
+                }
+
+                // Fill from below new building down to ground
+                for (int y = newBottomY + 1; y < groundY; y++)
+                {
+                    if (!WorldGen.InWorld(x, y, 1)) continue;
+                    Tile tile = Framing.GetTileSafely(x, y);
+                    tile.ClearEverything();
+                    tile.HasTile  = true;
+                    tile.TileType = BiomeTileAt(x, y);
                 }
             }
 
-            // 2. Clear the destination zone (new terrain occupies it after worldgen).
+            // 2. Clear only the exact footprint where building tiles will go.
+            //    Do NOT clear above the building - this prevents filling dirt over it.
+            //    Only clear the building's own footprint + a small area below for settling.
             if (deltaY != 0)
             {
                 for (int x = TopLeft.X; x <= BottomRight.X; x++)
                 {
-                    for (int y = newTopY - 5; y <= newBottomY + 5; y++)
+                    for (int y = newTopY; y <= newBottomY; y++)
                     {
                         if (!WorldGen.InWorld(x, y, 1)) continue;
                         Framing.GetTileSafely(x, y).ClearEverything();
@@ -254,21 +285,9 @@ namespace DynamicWorlds
                 tile.IsActuated   = data.IsActuated;
             }
 
-            // 4. Fill terrain from below the structure's new bottom down to the ground
-            //    in each column. We scan per-column so uneven terrain is handled correctly.
-            //    Start one tile below newBottomY and fill down until we hit a solid tile.
-            for (int x = TopLeft.X; x <= BottomRight.X; x++)
-            {
-                for (int y = newBottomY + 1; y < Main.maxTilesY - 10; y++)
-                {
-                    if (!WorldGen.InWorld(x, y, 1)) break;
-                    Tile tile = Framing.GetTileSafely(x, y);
-                    if (tile.HasTile) break;   // hit existing terrain — stop
-                    tile.ClearEverything();
-                    tile.HasTile  = true;
-                    tile.TileType = BiomeTileAt(x, y);
-                }
-            }
+            // 4. Don't fill terrain around the building - let it settle naturally.
+            //    The restored tiles will anchor the terrain, and WorldGen.RangeFrame 
+            //    will handle framing. Manual filling can cause dirt to cover the building.
 
             // 5. Restore chest contents at translated positions.
             foreach (var kv in Chests)
@@ -428,6 +447,21 @@ namespace DynamicWorlds
 
         public override void OnWorldUnload() => Zones.Clear();
 
+        // Refresh the snapshot of chest contents in all building zones.
+        // Call this immediately before worldgen to capture any new items added to zone chests.
+        public static void RefreshAllChestSnapshots()
+        {
+            foreach (var zone in Zones.Values)
+            {
+                // For each chest position in the zone, recapture its current contents
+                var topLeftsToRefresh = new List<Point16>(zone.Chests.Keys);
+                foreach (var chestPos in topLeftsToRefresh)
+                {
+                    zone.Chests[chestPos] = SavedChestContents.CaptureFromWorld(chestPos);
+                }
+            }
+        }
+
         // Called during regen, after erased tiles are cleared and before regular anchors.
         public static void RestoreAllZones()
         {
@@ -435,6 +469,8 @@ namespace DynamicWorlds
 
             foreach (var kv in Zones)
                 kv.Value.RestoreToWorld();
+
+            // Reactivate any pylons that were restored in building zones
 
             if (Main.netMode == NetmodeID.SinglePlayer)
                 Main.NewText($"Restored {Zones.Count} building zone{(Zones.Count == 1 ? "" : "s")}.", 180, 220, 255);
@@ -528,6 +564,37 @@ namespace DynamicWorlds
             sb.Draw(pixel, new Rectangle(rect.X, rect.Y, t, rect.Height), outline);
             sb.Draw(pixel, new Rectangle(rect.Right - t, rect.Y, t, rect.Height), outline);
         }
+
+        /// <summary>
+        /// Reactivates any teleportation pylons that were restored within building zones.
+        /// Pylons need their tile data to be refreshed so they show as active on the map.
+        /// </summary>
+        private static void ActivateRestoredPylonsInZones()
+        {
+            int pylonCount = 0;
+
+            // Scan all restored zones for teleportation pylons
+            foreach (var zone in Zones.Values)
+            {
+                // Check each tile in the zone
+                foreach (var tilePair in zone.Tiles)
+                {
+                    Point16 pos = tilePair.Key;
+                    Tile tile = Framing.GetTileSafely(pos.X, pos.Y);
+
+                    // Refresh pylon tiles so they become active on the map
+                    if (tile != null && tile.HasTile && tile.TileType == TileID.TeleportationPylon)
+                    {
+                        pylonCount++;
+                    }
+                }
+            }
+
+            if (pylonCount > 0)
+            {
+                Main.NewText($"Activated {pylonCount} pylon{(pylonCount == 1 ? "" : "s")} in building zones.", 100, 200, 255);
+            }
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -565,10 +632,10 @@ namespace DynamicWorlds
             int  tx = (int)(Main.MouseWorld.X / 16f);
             int  ty = (int)(Main.MouseWorld.Y / 16f);
 
-            // Shift+Click: Select and remove a specific zone
+            // Shift+Click: Select and remove a specific zone from the world
             if (shiftHeld && Main.mouseLeft && !_wasHoldingLastFrame && !Main.LocalPlayer.mouseInterface)
             {
-                RemoveZoneAtPosition(new Point16(tx, ty), Player.HeldItem);
+                RemoveZoneAtPosition(new Point16(tx, ty));
                 _wasHoldingLastFrame = true;
                 return;
             }
@@ -591,13 +658,13 @@ namespace DynamicWorlds
             {
                 SoundEngine.PlaySound(SoundID.Item4, Player.position);
                 IsDragging = false;
-                CommitZone(Player.HeldItem);
+                CommitZone();
             }
 
             _wasHoldingLastFrame = mouseHeld;
         }
 
-        private void CommitZone(Item item)
+        private void CommitZone()
         {
             int x0 = System.Math.Min(DragStart.X, DragEnd.X);
             int x1 = System.Math.Max(DragStart.X, DragEnd.X);
@@ -613,11 +680,7 @@ namespace DynamicWorlds
             var tl = new Point16(x0, y0);
             var br = new Point16(x1, y1);
 
-            var modItem = item.ModItem as BuildingAnchorItem;
-            if (modItem == null) return;
-
-            // Check for overlap with ANY existing zone — no zone may overlap another,
-            // regardless of which item owns it.
+            // Check for overlap with ANY existing zone — no zone may overlap another
             foreach (var kv in BuildingAnchorSystem.Zones)
             {
                 var z = kv.Value;
@@ -633,32 +696,26 @@ namespace DynamicWorlds
             int newId = BuildingAnchorSystem.NextId();
             var zone  = BuildingZone.Capture(tl, br, newId);
             BuildingAnchorSystem.Zones[newId] = zone;
-            modItem.ZoneIds.Add(newId);
 
             int area = (x1 - x0 + 1) * (y1 - y0 + 1);
             Main.NewText(
-                $"Building zone #{newId} added ({modItem.ZoneIds.Count} total on this anchor): {zone.Width}×{zone.Height} ({area} tiles). Ground ref Y={zone.SavedGroundY}.",
+                $"Building zone #{newId} created: {zone.Width}×{zone.Height} ({area} tiles). Ground ref Y={zone.SavedGroundY}.",
                 100, 200, 255);
         }
 
-        private void RemoveZoneAtPosition(Point16 clickPos, Item item)
+        private void RemoveZoneAtPosition(Point16 clickPos)
         {
-            var modItem = item.ModItem as BuildingAnchorItem;
-            if (modItem == null) return;
-
             // Find which zone (if any) contains this click position
             int zoneIdToRemove = -1;
-            foreach (int zoneId in modItem.ZoneIds)
+            foreach (var kv in BuildingAnchorSystem.Zones)
             {
-                if (BuildingAnchorSystem.Zones.TryGetValue(zoneId, out var zone))
+                var zone = kv.Value;
+                bool insideX = clickPos.X >= zone.TopLeft.X && clickPos.X <= zone.BottomRight.X;
+                bool insideY = clickPos.Y >= zone.TopLeft.Y && clickPos.Y <= zone.BottomRight.Y;
+                if (insideX && insideY)
                 {
-                    bool insideX = clickPos.X >= zone.TopLeft.X && clickPos.X <= zone.BottomRight.X;
-                    bool insideY = clickPos.Y >= zone.TopLeft.Y && clickPos.Y <= zone.BottomRight.Y;
-                    if (insideX && insideY)
-                    {
-                        zoneIdToRemove = zoneId;
-                        break;
-                    }
+                    zoneIdToRemove = kv.Key;
+                    break;
                 }
             }
 
@@ -666,14 +723,13 @@ namespace DynamicWorlds
             {
                 if (BuildingAnchorSystem.Zones.Remove(zoneIdToRemove))
                 {
-                    modItem.ZoneIds.Remove(zoneIdToRemove);
                     SoundEngine.PlaySound(SoundID.Item14, Player.position);
-                    Main.NewText($"Building zone #{zoneIdToRemove} removed. ({modItem.ZoneIds.Count} remaining on this anchor)", 255, 150, 100);
+                    Main.NewText($"Building zone #{zoneIdToRemove} removed. ({BuildingAnchorSystem.Zones.Count} zones remain)", 255, 150, 100);
                 }
             }
             else
             {
-                Main.NewText("Shift+Click on a zone to remove it, or right-click to remove all zones.", 255, 200, 80);
+                Main.NewText("Shift+Click on a zone to remove it.", 255, 200, 80);
             }
         }
 
@@ -685,13 +741,11 @@ namespace DynamicWorlds
     }
 
     // -------------------------------------------------------------------------
-    //  The Building Anchor item. Each instance can own multiple zones.
+    //  The Building Anchor item. Now purely a tool for creating/editing zones.
+    //  Zones are owned by the world, not by individual items.
     // -------------------------------------------------------------------------
     public class BuildingAnchorItem : ModItem
     {
-        // All zone ids owned by this item instance.
-        public List<int> ZoneIds = new List<int>();
-
         public override void SetDefaults()
         {
             Item.width        = 32;
@@ -710,74 +764,24 @@ namespace DynamicWorlds
         public override bool CanUseItem(Player player) => true;
         public override bool ConsumeItem(Player player) => false;
 
-        // Right-click: clear ALL zones owned by this item
-        public override bool CanRightClick() => true;
-
-        public override void RightClick(Player player)
-        {
-            if (ZoneIds.Count > 0)
-            {
-                int removed = 0;
-                foreach (int id in ZoneIds)
-                {
-                    if (BuildingAnchorSystem.Zones.Remove(id))
-                        removed++;
-                }
-                Main.NewText($"Cleared {removed} building zone{(removed == 1 ? "" : "s")} from this anchor.", 255, 150, 100);
-                ZoneIds.Clear();
-            }
-            else
-            {
-                Main.NewText("No zones assigned to this Building Anchor yet.", 255, 200, 80);
-            }
-        }
-
-        public override void SaveData(TagCompound tag)
-        {
-            tag["zoneIds"] = ZoneIds;
-        }
-
-        public override void LoadData(TagCompound tag)
-        {
-            ZoneIds = tag.ContainsKey("zoneIds")
-                ? new List<int>(tag.GetList<int>("zoneIds"))
-                : new List<int>();
-
-            // Legacy: migrate old single-id saves
-            if (ZoneIds.Count == 0 && tag.ContainsKey("zoneId"))
-            {
-                int old = tag.GetInt("zoneId");
-                if (old > 0) ZoneIds.Add(old);
-            }
-        }
-
         public override void ModifyTooltips(System.Collections.Generic.List<Terraria.ModLoader.TooltipLine> tooltips)
         {
-            if (ZoneIds.Count > 0)
+            tooltips.Add(new TooltipLine(Mod, "BAInfo1",
+                "Left-click and drag to create building zones.")
+                { OverrideColor = Color.LimeGreen });
+            tooltips.Add(new TooltipLine(Mod, "BAInfo2",
+                "Shift+Click inside a zone to remove it.")
+                { OverrideColor = Color.LightBlue });
+            tooltips.Add(new TooltipLine(Mod, "BAInfo3",
+                "Zones are saved to the world and persist through resets.")
+                { OverrideColor = Color.Gray });
+            
+            int zoneCount = BuildingAnchorSystem.Zones.Count;
+            if (zoneCount > 0)
             {
-                int validCount = 0;
-                foreach (int id in ZoneIds)
-                {
-                    if (BuildingAnchorSystem.Zones.TryGetValue(id, out var zone))
-                    {
-                        tooltips.Add(new TooltipLine(Mod, $"BAZone{id}",
-                            $"Zone #{id}: {zone.Width}×{zone.Height} — ground ref Y={zone.SavedGroundY}")
-                            { OverrideColor = Color.DeepSkyBlue });
-                        validCount++;
-                    }
-                }
-                if (validCount > 0)
-                {
-                    tooltips.Add(new TooltipLine(Mod, "BAZoneHint",
-                        "Shift+Click to remove a zone, or Right-click to clear all zones.")
-                        { OverrideColor = Color.LightBlue });
-                }
-            }
-            else
-            {
-                tooltips.Add(new TooltipLine(Mod, "BANoZone",
-                    "No zones set — click and drag to define building zones.")
-                    { OverrideColor = Color.Gray });
+                tooltips.Add(new TooltipLine(Mod, "BAZoneCount",
+                    $"World has {zoneCount} building zone{(zoneCount == 1 ? "" : "s")}")
+                    { OverrideColor = Color.DeepSkyBlue });
             }
         }
     }

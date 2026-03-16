@@ -65,3 +65,39 @@ Items: {
 		Tooltip: ""
 	}
 }
+
+Configs: {
+	DynamicWorldsConfig: {
+		DisplayName: Dynamic Worlds
+
+		EnableRegenCounter: {
+			Label: Enable Regen Counter
+			Tooltip: Shows the regeneration counter text on screen
+		}
+
+		AllowCheats: {
+			Label: Allow Cheats
+			Tooltip: Enable cheat commands and functions (e.g., /down, Reality Anchor/Eraser right-click, speed commands)
+		}
+
+		PreserveEvilType: {
+			Label: Preserve Evil Type
+			Tooltip: If enabled, regenerated worlds will have the same evil (Crimson or Corruption) as before
+		}
+
+		PreserveDungeonSide: {
+			Label: Preserve Dungeon Side
+			Tooltip: If enabled, regenerated worlds will have the dungeon on the same side as before
+		}
+
+		PreserveBiomeFeatures: {
+			Label: Preserve Biome Features
+			Tooltip: If enabled, world features like jungle, sky islands, etc. will be in similar locations
+		}
+
+		RandomizeSeedEachRegen: {
+			Label: Randomize World Each Regen
+			Tooltip: If disabled, the same seed is used for each regeneration (same layout). If enabled, random seed each time (different layout)
+		}
+	}
+}

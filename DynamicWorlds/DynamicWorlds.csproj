@@ -1,12 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-	<!-- Import tModLoader mod properties -->
-	<Import Project="..\tModLoader.targets" />
-
 	<!-- General -->
 	<PropertyGroup>
 		<TargetFramework>net6.0</TargetFramework>
 	</PropertyGroup>
+
+	<!-- Import tModLoader mod properties -->
+	<Import Project="..\tModLoader.targets" />
 
 	<!-- References -->
 	<ItemGroup>

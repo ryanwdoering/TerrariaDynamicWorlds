@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using ReLogic.Content;
@@ -15,17 +17,18 @@ namespace DynamicWorlds
 {
     // ---------------------------------------------------------------------
     //  Saved tile data for a single Anchored Tile position
+    //  Supports both vanilla tiles/walls and mod tiles/walls via ushort storage.
     // ---------------------------------------------------------------------
     public struct AnchoredTileData
     {
         public Point16 Position;
 
         public bool Active;
-        public ushort TileType;
+        public ushort TileType;  // Supports vanilla (TileID.*) and mod tile IDs
         public short FrameX;
         public short FrameY;
 
-        public ushort WallType;
+        public ushort WallType;  // Supports vanilla (WallID.*) and mod wall IDs
 
         public byte Liquid;
         public byte LiquidType;
@@ -41,9 +44,12 @@ namespace DynamicWorlds
         public bool HasActuator;
         public bool IsActuated;
 
+        // Tile entity data (serialized as base64 string from binary)
+        public string TileEntityTag;
+
         public TagCompound ToTag()
         {
-            return new TagCompound
+            var tag = new TagCompound
             {
                 ["x"] = Position.X,
                 ["y"] = Position.Y,
@@ -69,6 +75,12 @@ namespace DynamicWorlds
                 ["ha"] = HasActuator,
                 ["ia"] = IsActuated
             };
+
+            // Save tile entity if present
+            if (!string.IsNullOrEmpty(TileEntityTag))
+                tag["te"] = TileEntityTag;
+
+            return tag;
         }
 
         public static AnchoredTileData FromTag(TagCompound tag)
@@ -91,13 +103,29 @@ namespace DynamicWorlds
                 WireGreen  = tag.GetBool("wg"),
                 WireYellow = tag.GetBool("wy"),
                 HasActuator = tag.GetBool("ha"),
-                IsActuated  = tag.GetBool("ia")
+                IsActuated  = tag.GetBool("ia"),
+                TileEntityTag = tag.ContainsKey("te") ? tag.GetString("te") : null
             };
         }
 
         public static AnchoredTileData CaptureFromWorld(int x, int y)
         {
             Tile tile = Framing.GetTileSafely(x, y);
+
+            // Try to get tile entity if present and serialize its data
+            byte[] tileEntityData = null;
+            if (TileEntity.ByPosition.TryGetValue(new Point16(x, y), out var tileEntity))
+            {
+                using (var ms = new MemoryStream())
+                {
+                    using (var writer = new BinaryWriter(ms))
+                    {
+                        tileEntity.WriteExtraData(writer, false);
+                        tileEntityData = ms.ToArray();
+                    }
+                }
+                ModContent.GetInstance<DynamicWorlds>().Logger.Info($"[AnchoredTiles] Captured tile entity at ({x},{y}): {tileEntity.GetType().Name}, data size: {tileEntityData.Length} bytes");
+            }
 
             return new AnchoredTileData
             {
@@ -122,7 +150,9 @@ namespace DynamicWorlds
                 WireYellow = tile.YellowWire,
 
                 HasActuator = tile.HasActuator,
-                IsActuated  = tile.IsActuated
+                IsActuated  = tile.IsActuated,
+                
+                TileEntityTag = tileEntityData != null ? Convert.ToBase64String(tileEntityData) : null
             };
         }
 
@@ -157,17 +187,50 @@ namespace DynamicWorlds
 
             tile.HasActuator = HasActuator;
             tile.IsActuated  = IsActuated;
+
+            // Restore tile entity if present
+            if (!string.IsNullOrEmpty(TileEntityTag))
+            {
+                try
+                {
+                    Point16 pos = new Point16(x, y);
+                    // If a tile entity exists at this position, restore its data
+                    if (TileEntity.ByPosition.TryGetValue(pos, out var tileEntity))
+                    {
+                        byte[] data = Convert.FromBase64String(TileEntityTag);
+                        using (var ms = new MemoryStream(data))
+                        {
+                            using (var reader = new BinaryReader(ms))
+                            {
+                                tileEntity.ReadExtraData(reader, false);
+                                ModContent.GetInstance<DynamicWorlds>().Logger.Info($"[AnchoredTiles] Restored tile entity at ({x},{y}): {tileEntity.GetType().Name}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        ModContent.GetInstance<DynamicWorlds>().Logger.Warn($"[AnchoredTiles] Tile entity data exists at ({x},{y}) but no entity found in world (tile: {TileType})");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // If tile entity restoration fails, continue without it
+                    ModContent.GetInstance<DynamicWorlds>().Logger.Warn($"[AnchoredTiles] Failed to restore tile entity at ({x},{y}): {ex.Message}");
+                }
+            }
         }
     }
 
     // ---------------------------------------------------------------------
     //  Saved chest/dresser contents for a container at a given position
+    //  Supports both vanilla and mod items via ItemIO serialization.
     // ---------------------------------------------------------------------
     public class SavedChestContents
     {
         // Top-left tile position of the container
         public Point16 Position;
         // Up to 40 item slots (null entries are empty)
+        // Stores both vanilla items (ItemID.*) and mod items
         public Item[] Items;
 
         public TagCompound ToTag()
@@ -796,6 +859,13 @@ namespace DynamicWorlds
 
         public override void RightClick(Player player)
         {
+            var config = ModContent.GetInstance<DynamicWorldsConfig>();
+            if (!config.AllowCheats)
+            {
+                Main.NewText("Cheats are disabled. Enable 'Allow Cheats' in the mod config.", 255, 80, 80);
+                return;
+            }
+
             if (Main.netMode == NetmodeID.MultiplayerClient)
             {
                 Main.NewText("Anchor actions are single-player only.", 255, 80, 80);

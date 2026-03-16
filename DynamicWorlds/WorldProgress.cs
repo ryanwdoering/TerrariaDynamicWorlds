@@ -73,7 +73,18 @@ namespace DynamicWorlds
 
         // Town NPCs present in the world before regen (by NPC type ID).
         // These will be respawned at spawn after world regeneration.
+        // Includes both vanilla NPCs (NPCID.*) and mod town NPCs.
         public List<int> collectedNpcTypes = new();
+
+        // NPC positions, names, and species before regen (to respawn them at their original locations)
+        // Stores: (type, x, y, displayName, species)
+        // Includes both vanilla NPCs and mod town NPCs with their customized names and species (for pets).
+        public List<(int type, float x, float y, string displayName, string species)> npcPositions = new();
+
+        // NPC housing data before regen - tracks which NPCs had valid homes
+        // Stores: (npcType, homeTileX, homeTileY) for housed town NPCs
+        // Used to determine which NPCs should be respawned after world regen
+        public List<(int type, int homeX, int homeY)> npcHousing = new();
     }
 
     public static class WorldProgressUtil
@@ -163,10 +174,24 @@ namespace DynamicWorlds
             };
 
             // Collect all active town NPCs (alive, flagged as townNPC, valid type).
+            // This includes both vanilla and mod town NPCs.
             s.collectedNpcTypes = Main.npc
                 .Where(n => n.active && n.townNPC && n.type > 0)
                 .Select(n => n.type)
                 .Distinct()
+                .ToList();
+
+            // Also capture their positions, names, and species before regen.
+            // Includes both vanilla and mod NPCs that are town NPCs.
+            s.npcPositions = Main.npc
+                .Where(n => n.active && n.townNPC && n.type > 0)
+                .Select(n => (n.type, n.position.X, n.position.Y, n.GivenName, n.FullName))
+                .ToList();
+
+            // Capture housing data - only for NPCs that are NOT homeless and have valid home coords
+            s.npcHousing = Main.npc
+                .Where(n => n.active && n.townNPC && n.type > 0 && !n.homeless && n.homeTileX >= 0 && n.homeTileY >= 0)
+                .Select(n => (n.type, n.homeTileX, n.homeTileY))
                 .ToList();
 
             return s;
@@ -241,18 +266,19 @@ namespace DynamicWorlds
                 ChooseHardmodeOresVanillaStyle();
             }
 
-            // Respawn all town NPCs that were present before the regen.
-            // SpawnOnPlayer places the NPC near the local player's spawn.
-            if (s.collectedNpcTypes != null)
-            {
-                foreach (int npcType in s.collectedNpcTypes)
-                {
-                    // Skip if this NPC type is already alive in the world.
-                    bool alreadyPresent = Main.npc.Any(n => n.active && n.type == npcType);
-                    if (!alreadyPresent)
-                        NPC.SpawnOnPlayer(Main.myPlayer, npcType);
-                }
-            }
+            // NOTE: NPC respawning is now handled separately by RespawnTownNPCsAtOriginalPositions()
+            // in regenworldcommand.cs, which only respawns housed NPCs and respects housing assignments.
+            // Do NOT spawn NPCs here - it would duplicate respawning and override housing logic.
+            // See: regenworldcommand.cs line 163
+            // if (s.collectedNpcTypes != null)
+            // {
+            //     foreach (int npcType in s.collectedNpcTypes)
+            //     {
+            //         bool alreadyPresent = Main.npc.Any(n => n.active && n.type == npcType);
+            //         if (!alreadyPresent)
+            //             NPC.SpawnOnPlayer(Main.myPlayer, npcType);
+            //     }
+            // }
         }
 
         /// <summary>

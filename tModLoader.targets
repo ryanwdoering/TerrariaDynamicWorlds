@@ -3,20 +3,28 @@
 	<!-- tModLoader targets file for mod development -->
 	<!-- This file contains the configuration needed for tModLoader mod builds -->
 	
+	<!-- Set default paths if not defined -->
+	<PropertyGroup Condition="'$(tModLoaderPath)' == ''">
+		<tModLoaderPath Condition="'$(OS)' == 'Windows_NT'">C:\Program Files\Steam\steamapps\common\tModLoader</tModLoaderPath>
+		<tModLoaderPath Condition="'$(OS)' != 'Windows_NT'">$(UserProfile)/Library/Application Support/Steam/steamapps/common/tModLoader</tModLoaderPath>
+	</PropertyGroup>
+	
+	<PropertyGroup Condition="'$(TerrariaPath)' == ''">
+		<TerrariaPath Condition="'$(OS)' == 'Windows_NT'">C:\Program Files\Steam\steamapps\common\Terraria\Terraria.app\Contents\Resources</TerrariaPath>
+		<TerrariaPath Condition="'$(OS)' != 'Windows_NT'">$(UserProfile)/Library/Application Support/Steam/steamapps/common/Terraria/Terraria.app/Contents/Resources</TerrariaPath>
+	</PropertyGroup>
+	
 	<!-- Include paths for Terraria and tModLoader references -->
 	<ItemGroup>
-		<Reference Include="Terraria">
-			<HintPath>$(tModLoaderPath)\Terraria.exe</HintPath>
+		<!-- tModLoader includes Terraria, so only reference tModLoader -->
+		<Reference Include="tModLoader">
+			<HintPath>$(tModLoaderPath)/tModLoader.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
-		<Reference Include="tModLoader">
-			<HintPath>$(tModLoaderPath)\tModLoader.exe</HintPath>
+		<!-- FNA provides XNA-compatible types like Vector2, Color, etc. -->
+		<Reference Include="FNA">
+			<HintPath>$(TerrariaPath)/FNA.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 	</ItemGroup>
-	
-	<!-- Set default tModLoaderPath if not defined -->
-	<PropertyGroup Condition="'$(tModLoaderPath)' == ''">
-		<tModLoaderPath>C:\Program Files\tModLoader</tModLoaderPath>
-	</PropertyGroup>
 </Project>

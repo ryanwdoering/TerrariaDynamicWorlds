@@ -439,6 +439,13 @@ namespace DynamicWorlds
 
         public override void RightClick(Player player)
         {
+            var config = ModContent.GetInstance<DynamicWorldsConfig>();
+            if (!config.AllowCheats)
+            {
+                Main.NewText("Cheats are disabled. Enable 'Allow Cheats' in the mod config.", 255, 80, 80);
+                return;
+            }
+
             if (Main.netMode == NetmodeID.MultiplayerClient)
             {
                 Main.NewText("Eraser actions are single-player only.", 255, 80, 80);
