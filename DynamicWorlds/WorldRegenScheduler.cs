@@ -7,7 +7,7 @@ using Terraria.ModLoader.IO;
 namespace DynamicWorlds
 {
     /// <summary>
-    /// Automatically triggers /regenworld every 7 in-game days.
+    /// Automatically triggers /regenworld on the configured in-game day interval.
     /// Broadcasts spooky countdown messages at 3 days, 1 day, and dawn of regen day.
     /// Persists the day counter in the world save so it survives restarts.
     /// </summary>
@@ -15,9 +15,6 @@ namespace DynamicWorlds
     {
         // Total in-game days elapsed since the last regen (or world creation).
         private static int _daysSinceRegen = 0;
-
-        // How many days between regens.
-        private const int RegenEveryDays = 7;
 
         // Countdown warning thresholds (days remaining).
         private static readonly int[] WarnAtDays = { 3, 1 };
@@ -48,6 +45,8 @@ namespace DynamicWorlds
         {
             // Reset transient state when entering a world.
             _lastWarnDay = -1;
+            _wasNight = !Main.dayTime;
+            _wasDay = Main.dayTime;
         }
 
         // ── Time tracking ─────────────────────────────────────────────────
@@ -66,6 +65,12 @@ namespace DynamicWorlds
 
             bool isNight = !Main.dayTime;
 
+            if (!IsSchedulerEnabled())
+            {
+                _wasNight = isNight;
+                return;
+            }
+
             // Detect dawn: we were in night, now it's daytime.
             if (_wasNight && !isNight)
                 OnNewDay();
@@ -75,10 +80,11 @@ namespace DynamicWorlds
 
         private void OnNewDay()
         {
+            int regenEveryDays = GetRegenEveryDays();
             _daysSinceRegen++;
             _dawnWarningShown = false; // reset for the new day
 
-            int daysRemaining = RegenEveryDays - _daysSinceRegen;
+            int daysRemaining = regenEveryDays - _daysSinceRegen;
 
             // ── Countdown warnings ────────────────────────────────────────
             foreach (int warnDay in WarnAtDays)
@@ -112,16 +118,24 @@ namespace DynamicWorlds
             if (Main.netMode != NetmodeID.SinglePlayer)
                 return;
 
+            bool isDay = Main.dayTime;
+
+            if (!IsSchedulerEnabled())
+            {
+                _wasDay = isDay;
+                return;
+            }
+
             // Detect midnight: we were in daytime, now it's night.
-            if (_wasDay && !Main.dayTime)
+            if (_wasDay && !isDay)
                 OnMidnight();
 
-            _wasDay = Main.dayTime;
+            _wasDay = isDay;
         }
 
         private void OnMidnight()
         {
-            int daysRemaining = RegenEveryDays - _daysSinceRegen;
+            int daysRemaining = GetRegenEveryDays() - _daysSinceRegen;
 
             if (daysRemaining <= 0)
             {
@@ -138,6 +152,16 @@ namespace DynamicWorlds
         }
 
         // ── Helpers ───────────────────────────────────────────────────────
+
+        private static bool IsSchedulerEnabled()
+        {
+            return ModContent.GetInstance<DynamicWorldsConfig>().EnableRegenCounter;
+        }
+
+        private static int GetRegenEveryDays()
+        {
+            return Math.Max(1, ModContent.GetInstance<DynamicWorldsConfig>().ScheduledRegenIntervalDays);
+        }
 
         private static void BroadcastCountdown(int daysRemaining)
         {
@@ -157,9 +181,16 @@ namespace DynamicWorlds
         /// <summary>Returns current scheduler state for the /snap command.</summary>
         public static string GetStatusText()
         {
-            int daysRemaining = RegenEveryDays - _daysSinceRegen;
+            int regenEveryDays = GetRegenEveryDays();
+
+            if (!IsSchedulerEnabled())
+            {
+                return $"Scheduled world regeneration is disabled. Progress is paused at day {_daysSinceRegen}/{regenEveryDays}.";
+            }
+
+            int daysRemaining = regenEveryDays - _daysSinceRegen;
             return $"World regen in {Math.Max(0, daysRemaining)} day(s) " +
-                   $"(day {_daysSinceRegen}/{RegenEveryDays})";
+                   $"(day {_daysSinceRegen}/{regenEveryDays})";
         }
     }
 }

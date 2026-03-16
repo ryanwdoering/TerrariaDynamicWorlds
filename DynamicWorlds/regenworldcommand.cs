@@ -289,6 +289,7 @@ namespace DynamicWorlds
             StructureAnchorSystem.Zones.Clear();
             foreach (var kv in pending.BuildingZones)
                 StructureAnchorSystem.Zones[kv.Key] = kv.Value;
+            StructureAnchorSystem.RecalculateNextId();
         }
 
         private static RegenExecutionResult DeterminePlayerPlacement(PendingRegenContext pending)
@@ -826,18 +827,14 @@ namespace DynamicWorlds
         public override string Command => "snap";
         public override string Usage => "/snap";
         public override string Description =>
-            "Prints the current world progression snapshot.";
+            "Prints the current world progression snapshot and scheduled regen status.";
 
         public override void Action(CommandCaller caller, string input, string[] args)
         {
             var snap = WorldProgressUtil.Capture();
             WorldProgressUtil.PrintSnapshotToChat("Snapshot", snap);
-            
-            var config = ModContent.GetInstance<DynamicWorldsConfig>();
-            if (config.EnableRegenCounter)
-            {
-                Main.NewText(WorldRegenScheduler.GetStatusText(), 200, 80, 255);
-            }
+
+            Main.NewText(WorldRegenScheduler.GetStatusText(), 200, 80, 255);
         }
     }
 
@@ -933,7 +930,6 @@ namespace DynamicWorlds
             }
 
             StructureAnchorSystem.Zones.Clear();
-
             Main.NewText($"Cleared {count} structure zone{(count == 1 ? "" : "s")}.", 255, 150, 100);
         }
     }

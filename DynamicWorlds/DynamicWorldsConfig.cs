@@ -9,12 +9,17 @@ namespace DynamicWorlds
 	{
 		public override ConfigScope Mode => ConfigScope.ServerSide;
 
-		[Label("Enable Regen Counter")]
-		[Tooltip("Shows the regeneration counter text on screen")]
+		[Label("Enable Scheduled Regen")]
+		[Tooltip("Enable or pause the automatic world regeneration scheduler")]
 		public bool EnableRegenCounter = true;
 
+		[Range(1, 100)]
+		[Label("Scheduled Regen Interval (Days)")]
+		[Tooltip("How many in-game days pass between automatic world regenerations when scheduled regen is enabled")]
+		public int ScheduledRegenIntervalDays = 7;
+
 	[Label("Allow Cheats")]
-	[Tooltip("Enable cheat commands and functions (e.g., /down, Reality Anchor/Eraser right-click, speed commands)")]
+	[Tooltip("Enable cheat commands and manual tool actions such as /down, /hardmode, and Reality Anchor/Eraser inventory right-click")]
 	public bool AllowCheats = true;
 
 	// ── World Generation Settings ─────────────────────────────────────		[Label("Preserve Evil Type")]
@@ -23,16 +28,16 @@ namespace DynamicWorlds
 
 		[JsonIgnore]
 		[Label("Preserve Dungeon Side")]
-		[Tooltip("If enabled, regenerated worlds will have the dungeon on the same side as before")]
+		[Tooltip("Planned setting. Currently documented, but not yet enforced during world generation")]
 		public bool PreserveDungeonSide = true;
 
 		[JsonIgnore]
 		[Label("Preserve Biome Features")]
-		[Tooltip("If enabled, world features like jungle, sky islands, etc. will be in similar locations")]
+		[Tooltip("Planned setting. Currently documented, but not yet enforced during world generation")]
 		public bool PreserveBiomeFeatures = true;
 
 		[Label("Randomize World Each Regen")]
-		[Tooltip("If disabled, the same seed is used for each regeneration (same layout). If enabled, random seed each time (different layout)")]
+		[Tooltip("If disabled, regen reuses the current world seed when available. If enabled, each regeneration picks a fresh seed")]
 		public bool RandomizeSeedEachRegen = true;
 
 		public override void OnLoaded()

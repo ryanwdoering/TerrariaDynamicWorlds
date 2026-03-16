@@ -38,14 +38,14 @@ Mods: {
 				Tooltip:
 					'''
 					Click and drag to define a protected structure zone.
-					Drag multiple times to protect multiple separate structures with one anchor.
+					Drag again to add more separate structure zones to the world.
 					All tiles inside each zone are saved and restored after every world regen.
 					Each structure is translated up or down so its base sits at the new ground level.
 					Small gaps beneath a restored structure are bridged, but floating islands stay floating.
 					Zones on different anchors cannot overlap — each tile belongs to one zone only.
 					Structure zones cannot overlap individually anchored tiles.
 					Hold any world tool to see anchors, erasures, and structure zones highlighted in the world.
-					Right-click to clear all zones on this anchor.
+					Shift-click inside a structure zone to remove it.
 					'''
 			}
 		}
@@ -74,13 +74,18 @@ Configs: {
 		DisplayName: Dynamic Worlds
 
 		EnableRegenCounter: {
-			Label: Enable Regen Counter
-			Tooltip: Shows the regeneration counter text on screen
+			Label: Enable Scheduled Regen
+			Tooltip: Enable or pause the automatic world regeneration scheduler
+		}
+
+		ScheduledRegenIntervalDays: {
+			Label: Scheduled Regen Interval (Days)
+			Tooltip: How many in-game days pass between automatic world regenerations when scheduled regen is enabled
 		}
 
 		AllowCheats: {
 			Label: Allow Cheats
-			Tooltip: Enable cheat commands and functions (e.g., /down, Reality Anchor/Eraser right-click, speed commands)
+			Tooltip: Enable cheat commands and manual tool actions such as /down, /hardmode, and Reality Anchor/Eraser inventory right-click
 		}
 
 		PreserveEvilType: {
@@ -90,17 +95,17 @@ Configs: {
 
 		PreserveDungeonSide: {
 			Label: Preserve Dungeon Side
-			Tooltip: If enabled, regenerated worlds will have the dungeon on the same side as before
+			Tooltip: Planned setting. Currently documented, but not yet enforced during world generation
 		}
 
 		PreserveBiomeFeatures: {
 			Label: Preserve Biome Features
-			Tooltip: If enabled, world features like jungle, sky islands, etc. will be in similar locations
+			Tooltip: Planned setting. Currently documented, but not yet enforced during world generation
 		}
 
 		RandomizeSeedEachRegen: {
 			Label: Randomize World Each Regen
-			Tooltip: If disabled, the same seed is used for each regeneration (same layout). If enabled, random seed each time (different layout)
+			Tooltip: If disabled, regen reuses the current world seed when available. If enabled, each regeneration picks a fresh seed
 		}
 	}
 }

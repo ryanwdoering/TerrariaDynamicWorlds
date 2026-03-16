@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DynamicWorlds")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+5caa83df4fd2c9006a806f3a1a5191270b68abe6")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c68539c2ce2fbe3e2e4e4447e7b4e31f689af774")]
 [assembly: System.Reflection.AssemblyProductAttribute("DynamicWorlds")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DynamicWorlds")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

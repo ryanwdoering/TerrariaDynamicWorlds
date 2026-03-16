@@ -47,6 +47,7 @@ namespace DynamicWorlds
         // Width / height helpers
         public int Width  => BottomRight.X - TopLeft.X + 1;
         public int Height => BottomRight.Y - TopLeft.Y + 1;
+        public int CenterX => (TopLeft.X + BottomRight.X) / 2;
 
         // Returns true if this tile should be treated as open air for ground detection
         // (platforms, trees, cacti, sunflowers, and other surface plants).
@@ -82,9 +83,10 @@ namespace DynamicWorlds
         // Finds the Y of the actual world surface at column x by scanning downward
         // from the top of the world. Trees and vegetation are ignored so they don't
         // prevent the real ground tile from being found.
-        public static int FindGroundY(int x, int _startY = 0)
+        public static int FindGroundY(int x, int startY = 0)
         {
-            for (int y = 10; y < Main.maxTilesY - 10; y++)
+            int searchStartY = System.Math.Max(10, startY);
+            for (int y = searchStartY; y < Main.maxTilesY - 10; y++)
             {
                 Tile t = Framing.GetTileSafely(x, y);
                 if (IsAirOrVegetation(t)) continue;
@@ -206,6 +208,24 @@ namespace DynamicWorlds
             return zone;
         }
 
+        public ZoneRestorePlacement PredictRestorePlacement(int targetCenterX, int groundSearchStartY = 0)
+        {
+            int deltaX = targetCenterX - CenterX;
+            int newGroundY = FindGroundY(targetCenterX, groundSearchStartY);
+
+            // Place the zone so its bottom row sits one tile INTO the ground,
+            // giving a natural embedded/planted look.
+            int newBottomY = newGroundY;
+            int deltaY = newBottomY - BottomRight.Y;
+
+            return new ZoneRestorePlacement(
+                new Point16((short)(TopLeft.X + deltaX), (short)(TopLeft.Y + deltaY)),
+                new Point16((short)(BottomRight.X + deltaX), (short)newBottomY),
+                deltaX,
+                deltaY,
+                newGroundY);
+        }
+
         // ── Restore (translated) ──────────────────────────────────────────────
         // Called after worldgen. Finds new ground level at the same X column,
         // computes deltaY = newGroundY - savedGroundY, shifts every tile by deltaY,
@@ -213,22 +233,27 @@ namespace DynamicWorlds
         // regen uses up-to-date coordinates.
         public void RestoreToWorld()
         {
-            int centerX    = (TopLeft.X + BottomRight.X) / 2;
-            int newGroundY = FindGroundY(centerX, 0);
+            RestoreToPlacement(PredictRestorePlacement(CenterX), "[SA]");
+        }
 
-            // Place the zone so its bottom row sits one tile INTO the ground,
-            // giving a natural embedded/planted look.
-            int newBottomY = newGroundY;
-            int deltaY     = newBottomY - BottomRight.Y;
-            int newTopY    = TopLeft.Y + deltaY;
+        public void RestoreToPlacement(ZoneRestorePlacement placement, string logPrefix)
+        {
+            int centerX = CenterX + placement.DeltaX;
+            int newGroundY = placement.GroundY;
+            int deltaX = placement.DeltaX;
+            int deltaY = placement.DeltaY;
+            int newTopY = placement.TopLeft.Y;
+            int newBottomY = placement.BottomRight.Y;
+            int newLeftX = placement.TopLeft.X;
+            int newRightX = placement.BottomRight.X;
 
             ModContent.GetInstance<DynamicWorlds>().Logger.Info(
-                $"[SA] RestoreZone #{Id}: centerX={centerX} SavedGroundY={SavedGroundY} newGroundY={newGroundY} deltaY={deltaY} TL.Y={TopLeft.Y}->{newTopY} BR.Y={BottomRight.Y}->{newBottomY} worldSurface={Main.worldSurface:F0}");
+                $"{logPrefix} RestoreZone #{Id}: centerX={centerX} SavedGroundY={SavedGroundY} newGroundY={newGroundY} delta=({deltaX},{deltaY}) TL=({TopLeft.X},{TopLeft.Y})->({newLeftX},{newTopY}) BR=({BottomRight.X},{BottomRight.Y})->({newRightX},{newBottomY}) worldSurface={Main.worldSurface:F0}");
 
             // 1. Bridge only small support gaps beneath the restored footprint.
             //    If the structure lands on a floating island, leave it floating
             //    instead of creating a dirt pillar down to the surface below.
-            for (int x = TopLeft.X; x <= BottomRight.X; x++)
+            for (int x = newLeftX; x <= newRightX; x++)
             {
                 int supportY = FindNearbySupportY(x, newBottomY + 1);
                 if (supportY <= newBottomY + 1)
@@ -249,9 +274,9 @@ namespace DynamicWorlds
             // 2. Clear only the exact footprint where building tiles will go.
             //    Do NOT clear above the building - this prevents filling dirt over it.
             //    Only clear the building's own footprint + a small area below for settling.
-            if (deltaY != 0)
+            if (deltaX != 0 || deltaY != 0)
             {
-                for (int x = TopLeft.X; x <= BottomRight.X; x++)
+                for (int x = newLeftX; x <= newRightX; x++)
                 {
                     for (int y = newTopY; y <= newBottomY; y++)
                     {
@@ -264,7 +289,7 @@ namespace DynamicWorlds
             // 3. Write all captured tiles at their translated Y positions.
             foreach (var kv in Tiles)
             {
-                int nx = kv.Key.X;
+                int nx = kv.Key.X + deltaX;
                 int ny = kv.Key.Y + deltaY;
                 if (!WorldGen.InWorld(nx, ny, 1)) continue;
 
@@ -295,7 +320,7 @@ namespace DynamicWorlds
             // 5. Restore chest contents at translated positions.
             foreach (var kv in Chests)
             {
-                int nx = kv.Key.X;
+                int nx = kv.Key.X + deltaX;
                 int ny = kv.Key.Y + deltaY;
                 if (!WorldGen.InWorld(nx, ny, 1)) continue;
 
@@ -318,22 +343,22 @@ namespace DynamicWorlds
                 Player p = Main.LocalPlayer;
                 if (p != null)
                 {
-                    p.SpawnX = SavedSpawn.X;
+                    p.SpawnX = SavedSpawn.X + deltaX;
                     p.SpawnY = SavedSpawn.Y + deltaY;
                 }
             }
 
             WorldGen.RangeFrame(
-                System.Math.Max(0, TopLeft.X - 2),
-                System.Math.Max(0, System.Math.Min(newTopY, TopLeft.Y) - 2),
-                System.Math.Min(Main.maxTilesX, BottomRight.X + 2),
-                System.Math.Min(Main.maxTilesY, System.Math.Max(newBottomY, BottomRight.Y) + 2));
+                System.Math.Max(0, newLeftX - 2),
+                System.Math.Max(0, newTopY - 2),
+                System.Math.Min(Main.maxTilesX, newRightX + 2),
+                System.Math.Min(Main.maxTilesY, newBottomY + 2));
 
             // 7. Update zone metadata to the new position so the next regen is correct.
             //    Always update — even if deltaY==0, SavedGroundY may have changed.
             {
-                var newTl = new Point16(TopLeft.X,     (short)newTopY);
-                var newBr = new Point16(BottomRight.X, (short)newBottomY);
+                var newTl = new Point16((short)newLeftX, (short)newTopY);
+                var newBr = new Point16((short)newRightX, (short)newBottomY);
 
                 // Rebuild tile snapshot at new position
                 var newTiles = new Dictionary<Point16, AnchoredTileData>();
@@ -350,7 +375,7 @@ namespace DynamicWorlds
                 var newChests = new Dictionary<Point16, SavedChestContents>();
                 foreach (var kv in Chests)
                 {
-                    var newPos = new Point16(kv.Key.X, (short)(kv.Key.Y + deltaY));
+                    var newPos = new Point16((short)(kv.Key.X + deltaX), (short)(kv.Key.Y + deltaY));
                     newChests[newPos] = new SavedChestContents { Position = newPos, Items = kv.Value.Items };
                 }
 
@@ -361,7 +386,7 @@ namespace DynamicWorlds
                 Chests       = newChests;
 
                 if (SavedSpawn.X >= 0)
-                    SavedSpawn = new Point16(SavedSpawn.X, (short)(SavedSpawn.Y + deltaY));
+                    SavedSpawn = new Point16((short)(SavedSpawn.X + deltaX), (short)(SavedSpawn.Y + deltaY));
             }
         }
 
@@ -428,16 +453,36 @@ namespace DynamicWorlds
     // -------------------------------------------------------------------------
     //  World-level system: holds all registered structure zones.
     // -------------------------------------------------------------------------
+    public readonly struct ZoneRestorePlacement
+    {
+        public readonly Point16 TopLeft;
+        public readonly Point16 BottomRight;
+        public readonly short DeltaX;
+        public readonly short DeltaY;
+        public readonly int GroundY;
+
+        public ZoneRestorePlacement(Point16 topLeft, Point16 bottomRight, int deltaX, int deltaY, int groundY)
+        {
+            TopLeft = topLeft;
+            BottomRight = bottomRight;
+            DeltaX = (short)deltaX;
+            DeltaY = (short)deltaY;
+            GroundY = groundY;
+        }
+    }
+
     public readonly struct RestoredZoneTransform
     {
         public readonly Point16 OriginalTopLeft;
         public readonly Point16 OriginalBottomRight;
+        public readonly short DeltaX;
         public readonly short DeltaY;
 
-        public RestoredZoneTransform(Point16 originalTopLeft, Point16 originalBottomRight, int deltaY)
+        public RestoredZoneTransform(Point16 originalTopLeft, Point16 originalBottomRight, int deltaX, int deltaY)
         {
             OriginalTopLeft = originalTopLeft;
             OriginalBottomRight = originalBottomRight;
+            DeltaX = (short)deltaX;
             DeltaY = (short)deltaY;
         }
 
@@ -446,7 +491,7 @@ namespace DynamicWorlds
             point.Y >= OriginalTopLeft.Y && point.Y <= OriginalBottomRight.Y;
 
         public Point16 Translate(Point16 point) =>
-            new Point16(point.X, (short)(point.Y + DeltaY));
+            new Point16((short)(point.X + DeltaX), (short)(point.Y + DeltaY));
     }
 
     public class StructureAnchorSystem : ModSystem
@@ -460,6 +505,7 @@ namespace DynamicWorlds
 
         private static int _nextId = 1;
         public static int NextId() => _nextId++;
+        public static void RecalculateNextId() => _nextId = Zones.Count == 0 ? 1 : Zones.Keys.Max() + 1;
 
         public override void OnWorldLoad()
         {
@@ -507,6 +553,7 @@ namespace DynamicWorlds
                 LastRestoreTransforms.Add(new RestoredZoneTransform(
                     oldTopLeft,
                     oldBottomRight,
+                    kv.Value.TopLeft.X - oldTopLeft.X,
                     kv.Value.TopLeft.Y - oldTopLeft.Y));
             }
 
@@ -594,6 +641,9 @@ namespace DynamicWorlds
 
             if (tag.ContainsKey("BuildingNextId"))
                 _nextId = tag.GetInt("BuildingNextId");
+
+            if (_nextId <= 0 || _nextId <= Zones.Keys.DefaultIfEmpty(0).Max())
+                RecalculateNextId();
         }
 
         // ── Visual overlay ────────────────────────────────────────────────────

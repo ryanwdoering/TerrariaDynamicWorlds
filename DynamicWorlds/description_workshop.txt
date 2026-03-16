@@ -1,73 +1,96 @@
-[b][h1]Dynamic Worlds – Persistent World Progression + World Regeneration[/h1][/b]
+[b][h1]Dynamic Worlds[/h1][/b]
+[i]Fresh terrain, same playthrough.[/i]
 
-Dynamic Worlds is a lightweight utility mod that lets you regenerate your Terraria world layout WITHOUT losing your bosses, Hardmode status, ore tiers, or event progression.
+Dynamic Worlds is a single-player tModLoader utility mod that regenerates your world's terrain while preserving the parts of the playthrough you actually care about: progression, protected builds, important tiles, NPC housing, and preserved storage.
 
-Whether you want a fresh world layout or a new biome distribution — but don't want to repeat early-game progression — this mod preserves your world's identity and upgrades while refreshing terrain.
-
----
-
-[h2]⭐ Features[/h2]
-
-[b]• World Regeneration with Progress Kept[/b]
-Use [code]/regenworld[/code] to regenerate the world terrain while restoring all progression afterward. Bosses, Hardmode, ores, invasions, and town NPCs are all preserved. Pass an optional seed for a repeatable result:
-[code]/regenworld[/code]
-[code]/regenworld 12345[/code]
-[code]/regenworld myseedname[/code]
-After teleporting, you receive [b]10 seconds of Featherfall[/b] so you land safely.
-
-[b]• Automatic Regeneration Scheduler[/b]
-The world automatically regenerates every [b]7 in-game days[/b]. A spooky countdown broadcasts in chat as the day approaches:
-[list]
-[*] [i]3 days out:[/i] "☠ The ground trembles. The world will regenerate in 3 days... ☠"
-[*] [i]1 day out:[/i] "☠ Something wicked approaches. The world regenerates TOMORROW. ☠"
-[*] [i]Dawn of regen day:[/i] "☠ The world stirs... regeneration begins at midnight. ☠"
-[*] [i]Midnight:[/i] The world tears itself apart and is reborn.
-[/list]
-The day counter saves with your world — it survives restarts. Check days remaining with [b]/snap[/b].
-
-[b]• Reality Anchor – Persistent Structures[/b]
-Mark tiles you want to [b]keep[/b] across every regeneration. The Reality Anchor is given to you automatically when you first enter a world.
-[list]
-[*] [b]Left-click[/b] any tile while holding the Reality Anchor to anchor or unanchor it. Anchored tiles glow while the item is held.
-[*] [b]Click and drag[/b] to anchor or unanchor a whole rectangular area at once.
-[*] [b]Chests and dressers[/b] save their exact contents — items included.
-[*] [b]Anchor your bed[/b] to preserve your personal spawn point. The mod validates the bed tile survived before reasserting your spawn.
-[*] [b]Right-click[/b] the Reality Anchor in your inventory to restore all anchored tiles immediately, without running a full regen. The item is [b]never consumed[/b].
-[*] The anchor limit scales with boss progression: [b]5,000 tiles[/b] at the start, up to [b]100,000[/b] after Moon Lord.
-[*] The tooltip shows your current count, cap, fill level, and whether your bed is anchored.
-[/list]
-
-[b]• Reality Eraser – Guaranteed Empty Tiles[/b]
-Mark tiles to be [b]cleared to empty space[/b] after every world regen. The Reality Eraser is given to you alongside the Reality Anchor.
-[list]
-[*] [b]Left-click[/b] any tile while holding the Reality Eraser to mark or unmark it for erasure.
-[*] [b]Click and drag[/b] to mark or unmark a whole rectangular area at once.
-[*] Erasure runs [b]before[/b] anchored tiles are restored — anchors always win over erased positions.
-[*] [b]Right-click[/b] the Reality Eraser in your inventory to immediately clear all marked tiles now. The item is [b]never consumed[/b].
-[*] The erasure limit is much higher than the anchor limit: [b]50,000 tiles[/b] at the start, up to [b]1,000,000[/b] after Moon Lord.
-[/list]
-
-[b]• Guide NPC Dialogue[/b]
-Ask the Guide NPC about the Reality Anchor. Click the [b]Crafting[/b] button during Guide chat to open the Reality Anchor info page — he'll explain how anchoring, chest persistence, and manual restore work.
-
-[b]• Player Position Persistence[/b]
-Your last position in the world is saved when you exit and restored when you return — you always pick up exactly where you left off.
-
-[b]• World Progress Persistence[/b]
-Automatically saves bosses, invasions, Hardmode, ore tiers, progression flags, and town NPC roster to a JSON file linked to your world.
-
-[b]• Hardmode Toggle[/b]
-[code]/hardmode on[/code]
-[code]/hardmode off[/code]
-
-[b]• Boss/Event Flags Editing[/b]
-[code]/down eye[/code]
-[code]/down plantera[/code]
-
-[b]• Snapshot Debugging[/b]
-View world progression and days until next auto-regen:
-[code]/snap[/code]
+Run [code]/regenworld [seed][/code] to save the current world, enter a loading screen, generate fresh terrain, restore preserved data, and automatically load back into the regenerated world.
 
 ---
 
-[b]Rate the mod if you enjoy it![/b]
+[h2]At A Glance[/h2]
+[list]
+[*] Manual world regeneration with [code]/regenworld [seed][/code]
+[*] Real loading-screen regen flow instead of freezing live gameplay
+[*] Configurable scheduled regen that can be enabled, disabled, and timed in in-game days
+[*] Three world tools for preserving tiles, clearing space, and saving full structures
+[*] Preserved NPC housing, bed spawn handling, and vanilla pylon repair
+[/list]
+
+[h2]What Gets Preserved[/h2]
+[list]
+[*] Hardmode, game mode, evil type if configured, ore tiers, boss flags, event flags, invasions, and world identity
+[*] Town NPC roster, names, respawn positions, and preserved housing when a valid home survives
+[*] Anchored tiles, structure zones, and chest or dresser contents inside preserved areas
+[*] Bed spawn handling, with safe fallback to world spawn if the bed did not survive
+[/list]
+
+[h2]World Tools[/h2]
+
+[b]Reality Anchor[/b]
+[list]
+[*] Preserves exact tiles, walls, liquids, wires, actuators, and container contents
+[*] Left-click a tile to anchor or unanchor it
+[*] Click and drag to apply anchoring to a whole rectangle
+[*] Best for beds, storage rooms, wiring hubs, farms, and hand-built terrain
+[/list]
+
+[b]Reality Eraser[/b]
+[list]
+[*] Marks tiles that should be cleared to empty space after every regen
+[*] Left-click a tile to mark or unmark it
+[*] Click and drag to apply erasure to a whole rectangle
+[*] Great for tunnels, arenas, access shafts, and keeping surface approaches clear
+[/list]
+
+[b]Structure Anchor[/b]
+[list]
+[*] Preserves an entire build as one zone instead of tile-by-tile
+[*] Click and drag to create a structure zone
+[*] Shift-click inside a zone to remove it
+[*] Restores the structure onto the new terrain and bridges small support gaps underneath
+[*] Floating island builds stay floating instead of getting a giant dirt pillar to the ground
+[/list]
+
+Hold any world tool to see anchors, erasures, and structure zones together.
+
+[h2]Commands[/h2]
+[list]
+[*] [code]/regenworld [seed][/code] - run a regeneration manually
+[*] [code]/snap[/code] - print the current progression snapshot and scheduler status
+[*] [code]/dwtools[/code] - receive the three world tools again
+[*] [code]/dwinfo[/code] - inspect saved anchors, erasures, and structure zones
+[*] [code]/dwzone [list|clear|clearall] [id][/code] - manage structure zones
+[*] [code]/clearzones[/code] - remove all structure zones
+[*] [code]/hardmode [on|off][/code] and [code]/down <bossOrEvent>[/code] - optional admin or testing tools
+[/list]
+
+[h2]Config[/h2]
+[list]
+[*] [b]Enable Scheduled Regen[/b] - turn automatic regen on or off
+[*] [b]Scheduled Regen Interval (Days)[/b] - choose how many in-game days pass between scheduled regens
+[*] [b]Preserve Evil Type[/b] - keep the old world evil after regen, or turn it off to allow a reroll
+[*] [b]Randomize World Each Regen[/b] - use a fresh seed every time or keep regens repeatable
+[*] [b]Allow Cheats[/b] - enable admin and testing actions such as progression commands and manual tool actions
+[/list]
+
+[h2]Compatibility And Limitations[/h2]
+[list]
+[*] Single-player only
+[*] Works best when the same mod list stays installed before and after regen
+[*] Preserved chest and dresser contents are intended to support modded items through tModLoader serialization
+[*] Modded tiles, walls, and town NPCs can often survive regen if their source mods are still present
+[*] Compatibility is weaker for custom pylons, unusual tile entities, and major worldgen-overhaul mods
+[/list]
+
+[h2]FAQ[/h2]
+[list]
+[*] [b]Does regen happen live while I keep playing?[/b] No. The mod saves and exits to a loading screen, regenerates the world there, then loads you back in automatically.
+[*] [b]Can it change my world evil?[/b] Yes. Turn off [b]Preserve Evil Type[/b], then regen to let the new world choose its evil.
+[*] [b]What about pylons?[/b] Preserved vanilla pylons are repaired after regen so they function again, but they are not currently auto-moved to a matching biome.
+[*] [b]Will it work on older worlds?[/b] If the world still loads in your current Terraria/tModLoader setup, Dynamic Worlds can still snapshot and regenerate it. It uses current worldgen, not historical 1.3 generation.
+[*] [b]Will Structure Anchor generate a whole hill around my house?[/b] Not fully. It moves the structure onto new terrain and bridges small gaps; preserve the surrounding terrain too if you want the build embedded.
+[/list]
+
+---
+
+[b]Built for players who want a new world layout without restarting the playthrough.[/b]
