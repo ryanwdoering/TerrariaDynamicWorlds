@@ -41,6 +41,9 @@ namespace DynamicWorlds
             if (!hasBA)
                 Player.QuickSpawnItem(Player.GetSource_GiftOrReward(), baType);
 
+            if (DynamicWorldRegenSystem.TryHandlePostRegenEnter(Player))
+                return;
+
             // Restore last position — singleplayer only, and only if the destination
             // tiles are actually clear so the player doesn't clip into solid terrain.
             if (Main.netMode == NetmodeID.SinglePlayer && _savedTileX > 0 && _savedTileY > 0)
@@ -72,6 +75,9 @@ namespace DynamicWorlds
 
         public override void PreSavePlayer()
         {
+            if (DynamicWorldRegenSystem.SuppressPlayerPositionSave)
+                return;
+
             // Capture tile position just before the player file is written.
             _savedTileX = (int)(Player.position.X / 16f);
             _savedTileY = (int)(Player.position.Y / 16f);
@@ -81,6 +87,9 @@ namespace DynamicWorlds
 
         public override void SaveData(TagCompound tag)
         {
+            if (DynamicWorldRegenSystem.SuppressPlayerPositionSave)
+                return;
+
             // Last known position — only save if we have valid coords.
             if (_savedTileX > 0 && _savedTileY > 0)
             {

@@ -566,7 +566,7 @@ namespace DynamicWorlds
         }
 
         // Call this at the end of world regeneration to restore all anchored tiles.
-        public static void RestoreAllAnchoredTiles()
+        public static void RestoreAllAnchoredTiles(bool announce = true)
         {
             // 1. Restore all tile data (geometry, walls, wires, etc.)
             foreach (var kv in AnchoredTiles)
@@ -600,7 +600,11 @@ namespace DynamicWorlds
                     savedContents.RestoreToWorld();
             }
 
-            if (Main.netMode == NetmodeID.SinglePlayer)
+            int restoredPylons = PylonRestoreHelper.RestoreVanillaPylons(AnchoredTiles.Keys);
+            if (restoredPylons > 0)
+                ModContent.GetInstance<DynamicWorlds>().Logger.Info($"[AnchoredTiles] Re-registered {restoredPylons} restored vanilla pylon(s).");
+
+            if (announce && Main.netMode == NetmodeID.SinglePlayer)
                 Main.NewText("All anchored tiles restored.", 150, 255, 150);
         }
 

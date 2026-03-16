@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using ReLogic.Content;
@@ -49,6 +50,8 @@ namespace DynamicWorlds
 
         // Returns true if this tile should be treated as open air for ground detection
         // (platforms, trees, cacti, sunflowers, and other surface plants).
+        private const int MaxSupportBridgeDepth = 8;
+
         private static bool IsAirOrVegetation(Tile t)
         {
             if (!t.HasTile) return true;
@@ -104,6 +107,21 @@ namespace DynamicWorlds
             return (int)Main.worldSurface;
         }
 
+        private static int FindNearbySupportY(int x, int startY)
+        {
+            for (int y = startY; y <= startY + MaxSupportBridgeDepth && y < Main.maxTilesY - 10; y++)
+            {
+                if (!WorldGen.InWorld(x, y, 1))
+                    break;
+
+                Tile tile = Framing.GetTileSafely(x, y);
+                if (tile.HasTile && !TileID.Sets.Platforms[tile.TileType])
+                    return y;
+            }
+
+            return -1;
+        }
+
         // ── Biome fill ────────────────────────────────────────────────────────
         // Returns the default solid tile type for the biome at world position (x, y).
         private static ushort BiomeTileAt(int x, int y)
@@ -149,7 +167,8 @@ namespace DynamicWorlds
                 }
             }
 
-            Main.NewText($"[BA] Captured zone #{id}: TL=({topLeft.X},{topLeft.Y}) BR=({bottomRight.X},{bottomRight.Y}) centerX={centerX} SavedGroundY={zone.SavedGroundY} worldSurface={Main.worldSurface:F0}", 180, 255, 120);
+            ModContent.GetInstance<DynamicWorlds>().Logger.Info(
+                $"[BA] Captured zone #{id}: TL=({topLeft.X},{topLeft.Y}) BR=({bottomRight.X},{bottomRight.Y}) centerX={centerX} SavedGroundY={zone.SavedGroundY} worldSurface={Main.worldSurface:F0}");
 
             // Snapshot every tile in the bounding rectangle
             for (int x = topLeft.X; x <= bottomRight.X; x++)
@@ -203,39 +222,23 @@ namespace DynamicWorlds
             int deltaY     = newBottomY - BottomRight.Y;
             int newTopY    = TopLeft.Y + deltaY;
 
-            Main.NewText($"[BA] RestoreZone #{Id}: centerX={centerX} SavedGroundY={SavedGroundY} newGroundY={newGroundY} deltaY={deltaY} TL.Y={TopLeft.Y}→{newTopY} BR.Y={BottomRight.Y}→{newBottomY} worldSurface={Main.worldSurface:F0}", 120, 220, 255);
+            ModContent.GetInstance<DynamicWorlds>().Logger.Info(
+                $"[BA] RestoreZone #{Id}: centerX={centerX} SavedGroundY={SavedGroundY} newGroundY={newGroundY} deltaY={deltaY} TL.Y={TopLeft.Y}->{newTopY} BR.Y={BottomRight.Y}->{newBottomY} worldSurface={Main.worldSurface:F0}");
 
-            // 1. Fill terrain beneath the OLD footprint to prevent air pockets.
-            //    The building is moving, so we need to fill in the space it's leaving behind.
+            // 1. Bridge only small support gaps beneath the restored footprint.
+            //    If the structure lands on a floating island, leave it floating
+            //    instead of creating a dirt pillar down to the surface below.
             for (int x = TopLeft.X; x <= BottomRight.X; x++)
             {
-                // Find ground starting from below the old building position
-                int groundY = Main.maxTilesY - 10;
-                for (int y = BottomRight.Y + 1; y < Main.maxTilesY - 15; y++)
-                {
-                    if (!WorldGen.InWorld(x, y, 1)) continue;
-                    
-                    int solidCount = 0;
-                    for (int check = y; check < Math.Min(y + 10, Main.maxTilesY); check++)
-                    {
-                        Tile checkTile = Framing.GetTileSafely(x, check);
-                        if (checkTile.HasTile)
-                            solidCount++;
-                        else
-                            break;
-                    }
-                    
-                    if (solidCount >= 10)
-                    {
-                        groundY = y;
-                        break;
-                    }
-                }
+                int supportY = FindNearbySupportY(x, newBottomY + 1);
+                if (supportY <= newBottomY + 1)
+                    continue;
 
-                // Fill from below new building down to ground
-                for (int y = newBottomY + 1; y < groundY; y++)
+                for (int y = newBottomY + 1; y < supportY; y++)
                 {
-                    if (!WorldGen.InWorld(x, y, 1)) continue;
+                    if (!WorldGen.InWorld(x, y, 1))
+                        continue;
+
                     Tile tile = Framing.GetTileSafely(x, y);
                     tile.ClearEverything();
                     tile.HasTile  = true;
@@ -425,10 +428,32 @@ namespace DynamicWorlds
     // -------------------------------------------------------------------------
     //  World-level system: holds all registered building zones.
     // -------------------------------------------------------------------------
+    public readonly struct RestoredZoneTransform
+    {
+        public readonly Point16 OriginalTopLeft;
+        public readonly Point16 OriginalBottomRight;
+        public readonly short DeltaY;
+
+        public RestoredZoneTransform(Point16 originalTopLeft, Point16 originalBottomRight, int deltaY)
+        {
+            OriginalTopLeft = originalTopLeft;
+            OriginalBottomRight = originalBottomRight;
+            DeltaY = (short)deltaY;
+        }
+
+        public bool Contains(Point16 point) =>
+            point.X >= OriginalTopLeft.X && point.X <= OriginalBottomRight.X &&
+            point.Y >= OriginalTopLeft.Y && point.Y <= OriginalBottomRight.Y;
+
+        public Point16 Translate(Point16 point) =>
+            new Point16(point.X, (short)(point.Y + DeltaY));
+    }
+
     public class BuildingAnchorSystem : ModSystem
     {
         // Keyed by zone Id
         public static readonly Dictionary<int, BuildingZone> Zones = new();
+        private static readonly List<RestoredZoneTransform> LastRestoreTransforms = new();
 
         // Overlay texture drawn on zone tiles while the item is held
         public static Asset<Texture2D> ZoneIcon;
@@ -439,13 +464,18 @@ namespace DynamicWorlds
         public override void OnWorldLoad()
         {
             Zones.Clear();
+            LastRestoreTransforms.Clear();
             _nextId = 1;
 
             if (ZoneIcon == null || !ZoneIcon.IsLoaded)
                 ZoneIcon = ModContent.Request<Texture2D>("DynamicWorlds/AnchoredTile");
         }
 
-        public override void OnWorldUnload() => Zones.Clear();
+        public override void OnWorldUnload()
+        {
+            Zones.Clear();
+            LastRestoreTransforms.Clear();
+        }
 
         // Refresh the snapshot of chest contents in all building zones.
         // Call this immediately before worldgen to capture any new items added to zone chests.
@@ -463,17 +493,45 @@ namespace DynamicWorlds
         }
 
         // Called during regen, after erased tiles are cleared and before regular anchors.
-        public static void RestoreAllZones()
+        public static void RestoreAllZones(bool announce = true)
         {
+            LastRestoreTransforms.Clear();
             if (Zones.Count == 0) return;
 
             foreach (var kv in Zones)
+            {
+                Point16 oldTopLeft = kv.Value.TopLeft;
+                Point16 oldBottomRight = kv.Value.BottomRight;
+
                 kv.Value.RestoreToWorld();
+                LastRestoreTransforms.Add(new RestoredZoneTransform(
+                    oldTopLeft,
+                    oldBottomRight,
+                    kv.Value.TopLeft.Y - oldTopLeft.Y));
+            }
 
-            // Reactivate any pylons that were restored in building zones
+            int restoredPylons = PylonRestoreHelper.RestoreVanillaPylons(
+                Zones.Values.SelectMany(zone => zone.Tiles.Keys));
+            if (restoredPylons > 0)
+                ModContent.GetInstance<DynamicWorlds>().Logger.Info($"[BuildingAnchor] Re-registered {restoredPylons} restored vanilla pylon(s).");
 
-            if (Main.netMode == NetmodeID.SinglePlayer)
+            if (announce && Main.netMode == NetmodeID.SinglePlayer)
                 Main.NewText($"Restored {Zones.Count} building zone{(Zones.Count == 1 ? "" : "s")}.", 180, 220, 255);
+        }
+
+        public static bool TryTranslateSavedPoint(Point16 savedPoint, out Point16 translatedPoint)
+        {
+            foreach (var transform in LastRestoreTransforms)
+            {
+                if (transform.Contains(savedPoint))
+                {
+                    translatedPoint = transform.Translate(savedPoint);
+                    return true;
+                }
+            }
+
+            translatedPoint = default;
+            return false;
         }
 
         // ── Save / Load ───────────────────────────────────────────────────────
@@ -565,36 +623,6 @@ namespace DynamicWorlds
             sb.Draw(pixel, new Rectangle(rect.Right - t, rect.Y, t, rect.Height), outline);
         }
 
-        /// <summary>
-        /// Reactivates any teleportation pylons that were restored within building zones.
-        /// Pylons need their tile data to be refreshed so they show as active on the map.
-        /// </summary>
-        private static void ActivateRestoredPylonsInZones()
-        {
-            int pylonCount = 0;
-
-            // Scan all restored zones for teleportation pylons
-            foreach (var zone in Zones.Values)
-            {
-                // Check each tile in the zone
-                foreach (var tilePair in zone.Tiles)
-                {
-                    Point16 pos = tilePair.Key;
-                    Tile tile = Framing.GetTileSafely(pos.X, pos.Y);
-
-                    // Refresh pylon tiles so they become active on the map
-                    if (tile != null && tile.HasTile && tile.TileType == TileID.TeleportationPylon)
-                    {
-                        pylonCount++;
-                    }
-                }
-            }
-
-            if (pylonCount > 0)
-            {
-                Main.NewText($"Activated {pylonCount} pylon{(pylonCount == 1 ? "" : "s")} in building zones.", 100, 200, 255);
-            }
-        }
     }
 
     // -------------------------------------------------------------------------

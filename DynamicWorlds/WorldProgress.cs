@@ -496,7 +496,9 @@ namespace DynamicWorlds
         /// </summary>
         public override void PostWorldLoad()
         {
-        
+            if (DynamicWorldRegenSystem.ShouldSuppressWorldLoadSnapshot)
+                return;
+
             var snap = WorldProgressUtil.Capture();
             WorldProgressUtil.PrintSnapshotToChat("World loaded", snap);
         }

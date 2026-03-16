@@ -178,7 +178,7 @@ namespace DynamicWorlds
 
         // Call this during world regeneration — BEFORE anchored tiles are restored.
         // Clears every tile position marked for erasure.
-        public static void ClearAllErasedTiles()
+        public static void ClearAllErasedTiles(bool announce = true)
         {
             int cleared = 0;
             foreach (var pos in ErasedTiles)
@@ -196,7 +196,7 @@ namespace DynamicWorlds
             if (cleared > 0)
                 WorldGen.RangeFrame(0, 0, Main.maxTilesX, Main.maxTilesY);
 
-            if (Main.netMode == NetmodeID.SinglePlayer && cleared > 0)
+            if (announce && Main.netMode == NetmodeID.SinglePlayer && cleared > 0)
                 Main.NewText($"Erased {cleared} marked tile{(cleared == 1 ? "" : "s")}.", 255, 150, 80);
         }
 

@@ -26,5 +26,9 @@
 			<HintPath>$(TerrariaPath)/FNA.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
+		<Reference Include="ReLogic">
+			<HintPath>$(tModLoaderPath)/Libraries/ReLogic/1.0.0/ReLogic.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
 	</ItemGroup>
 </Project>

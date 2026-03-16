@@ -3,21 +3,40 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Terraria;
+using Terraria.DataStructures;
 using Terraria.ID;
 using Terraria.ModLoader;
 using Terraria.WorldBuilding;
-using Terraria.GameContent.Generation;
-using Terraria.DataStructures;
 
 namespace DynamicWorlds
 {
+    internal sealed class RegenExecutionResult
+    {
+        public bool HadSavedSpawn;
+        public bool UsePersonalSpawn;
+        public int SpawnTileX;
+        public int SpawnTileY;
+        public int RespawnedNpcCount;
+        public int RestoredHousingCount;
+    }
+
+    internal readonly struct NpcRestoreSummary
+    {
+        public readonly int RespawnedCount;
+        public readonly int RestoredHousingCount;
+
+        public NpcRestoreSummary(int respawnedCount, int restoredHousingCount)
+        {
+            RespawnedCount = respawnedCount;
+            RestoredHousingCount = restoredHousingCount;
+        }
+    }
+
     public static class SingleplayerRegenHelper
     {
-        private static bool regenRunning = false;
-
         public static void RegenerateWorldWithProgress(string seedOverride = null)
         {
-            if (regenRunning)
+            if (DynamicWorldRegenSystem.IsBusy)
             {
                 Main.NewText("World regeneration is already in progress.", 255, 200, 50);
                 return;
@@ -35,196 +54,304 @@ namespace DynamicWorlds
                 return;
             }
 
-            regenRunning = true;
+            PendingRegenContext pending = CreatePendingRegenContext(seedOverride);
+            if (pending == null)
+                return;
+
+            Main.NewText("Saving current world and opening the regeneration screen...", 180, 220, 255);
+            DynamicWorldRegenSystem.QueueRegen(pending);
+        }
+
+        internal static PendingRegenContext CreatePendingRegenContext(string seedOverride)
+        {
             var mod = ModContent.GetInstance<DynamicWorlds>();
             mod.Logger.Info("=== WORLD REGENERATION STARTED ===");
+            mod.Logger.Info("Capturing world state for menu-based regeneration...");
 
-            try
+            WorldProgressSnapshot before = WorldProgressUtil.Capture();
+            WorldProgressUtil.PrintSnapshotToChat("Before regen", before);
+
+            AnchoredTileSystem.RefreshAllChestSnapshots();
+            BuildingAnchorSystem.RefreshAllChestSnapshots();
+
+            Player player = Main.LocalPlayer;
+            int newSeed = ResolveNewSeed(seedOverride, out string seedLabel);
+
+            mod.Logger.Info($"Queued menu regen with seed {newSeed} and {AnchoredTileSystem.AnchoredTiles.Count} anchored tiles.");
+
+            return new PendingRegenContext
             {
-                // Capture progression and chest snapshots before anything is wiped
-                mod.Logger.Info("Capturing world state...");
-                var before = WorldProgressUtil.Capture();
-                WorldProgressUtil.PrintSnapshotToChat("Before regen", before);
-                AnchoredTileSystem.RefreshAllChestSnapshots();
-                BuildingAnchorSystem.RefreshAllChestSnapshots();
-                mod.Logger.Info($"Captured {AnchoredTileSystem.AnchoredTiles.Count} anchored tiles, {BuildingAnchorSystem.Zones.Count} building zones");
+                Snapshot = CloneSnapshot(before),
+                NewSeed = newSeed,
+                SeedLabel = seedLabel,
+                SavedSpawnX = player?.SpawnX ?? -1,
+                SavedSpawnY = player?.SpawnY ?? -1,
+                AnchoredTiles = new Dictionary<Point16, AnchoredTileData>(AnchoredTileSystem.AnchoredTiles),
+                AnchoredChests = CloneAnchoredChests(),
+                ErasedTiles = new HashSet<Point16>(ErasedTileSystem.ErasedTiles),
+                BuildingZones = CloneBuildingZones(),
+            };
+        }
 
-                // Snapshot personal spawn point before worldgen wipes state.
-                Player p = Main.LocalPlayer;
-                int savedSpawnX = p.SpawnX;
-                int savedSpawnY = p.SpawnY;
+        internal static RegenExecutionResult ExecutePendingRegen(PendingRegenContext pending)
+        {
+            if (pending == null)
+                return new RegenExecutionResult();
 
-                // Resolve seed: explicit arg → parse as int or hash the string, else decide based on config.
-                int newSeed;
-                var config = ModContent.GetInstance<DynamicWorldsConfig>();
+            var mod = ModContent.GetInstance<DynamicWorlds>();
+            mod.Logger.Info("Applying preserved state to regenerated world...");
 
-                if (!string.IsNullOrWhiteSpace(seedOverride))
-                {
-                    // User explicitly provided a seed
-                    if (int.TryParse(seedOverride, out int parsedSeed))
-                        newSeed = parsedSeed & 0x7FFFFFFF;
-                    else
-                        newSeed = Math.Abs(seedOverride.GetHashCode()) & 0x7FFFFFFF;
+            CopyPendingDataToLiveSystems(pending);
 
-                    Main.NewText($"Using seed: {seedOverride} → {newSeed}", 180, 180, 255);
-                }
-                else if (!config.RandomizeSeedEachRegen)
-                {
-                    // Use the current world's seed for consistent layout
-                    string currentSeedText = Main.ActiveWorldFileData?.SeedText ?? "";
-                    if (int.TryParse(currentSeedText, out int currentSeed))
-                        newSeed = currentSeed & 0x7FFFFFFF;
-                    else
-                        newSeed = Math.Abs(currentSeedText.GetHashCode()) & 0x7FFFFFFF;
-
-                    Main.NewText($"Reusing world seed for consistent layout: {currentSeedText}", 180, 180, 255);
-                }
-                else
-                {
-                    // Generate a random seed
-                    newSeed = (int)(DateTime.Now.Ticks & 0x7FFFFFFF);
-                }
-
-                if (Main.ActiveWorldFileData != null)
-                    Main.ActiveWorldFileData.SetSeed(newSeed.ToString());
-
-                mod.Logger.Info($"Starting world generation with seed: {newSeed}");
-                WorldGen.gen = true;
-                WorldGen.clearWorld();
-
-                var prog = new GenerationProgress();
-                WorldGen.GenerateWorld(newSeed, prog);
-
-                WorldGen.gen = false;
-                mod.Logger.Info("World generation complete");
-
-                // Re-apply all boss/hardmode/ore progression
-                mod.Logger.Info("Applying world progression...");
-                WorldProgressUtil.Apply(before);
-
-                // Apply config-aware world settings
-                ApplyConfigurableWorldSettings(before);
-
-                // First clear all tiles marked for erasure, then restore anchored tiles.
-                // Order matters: erasure runs on the freshly generated world before anchors
-                // are written back, so anchored tiles always win over erased positions.
-                mod.Logger.Info("Clearing erased tiles...");
-                ErasedTileSystem.ClearAllErasedTiles();
-
-                // Restore building zones (translated to new ground level) before regular
-                // anchored tiles, so per-tile anchors can override zone tiles if needed.
-                mod.Logger.Info("Restoring building zones...");
-                BuildingAnchorSystem.RestoreAllZones();
-
-                // Restore every anchored tile and chest
-                // Tile entities (including pylons) are automatically restored with tiles
-                mod.Logger.Info("Restoring anchored tiles...");
-                AnchoredTileSystem.RestoreAllAnchoredTiles();
-
-                // Teleport local player to the new spawn.
-                // Priority: personal spawn point (bed) if it survived regen AND is valid.
-                // Building zone restore may have already updated p.SpawnX/Y to the
-                // translated position, so we read from p.SpawnX/Y after all restores.
-                Vector2 spawnPos;
-
-                bool hasPersonalSpawn = savedSpawnX >= 0 && savedSpawnY >= 0;
-
-                // Use the (possibly translated) spawn set by building zone restore,
-                // or fall back to the pre-regen saved value.
-                int effectiveSpawnX = (p.SpawnX >= 0) ? p.SpawnX : savedSpawnX;
-                int effectiveSpawnY = (p.SpawnY >= 0) ? p.SpawnY : savedSpawnY;
-
-                bool spawnIsAnchored = hasPersonalSpawn &&
-                    (AnchoredTileSystem.AnchoredTiles.ContainsKey(new Terraria.DataStructures.Point16(savedSpawnX, savedSpawnY)) ||
-                     p.SpawnX != savedSpawnX || p.SpawnY != savedSpawnY); // translated by building zone
-
-                // Validate the bed tile actually survived restoration.
-                bool spawnIsValid = effectiveSpawnX >= 0 && effectiveSpawnY >= 0 &&
-                                    Player.CheckSpawn(effectiveSpawnX, effectiveSpawnY);
-
-                if (spawnIsValid)
-                {
-                    p.SpawnX = effectiveSpawnX;
-                    p.SpawnY = effectiveSpawnY;
-                    spawnPos = new Vector2(effectiveSpawnX * 16, effectiveSpawnY * 16 - 48);
-                    Main.NewText("Your bed survived — spawning there.", 180, 255, 180);
-                }
-                else
-                {
-                    // Clear the stale bed spawn — the bed no longer exists in the new world.
-                    p.SpawnX = -1;
-                    p.SpawnY = -1;
-                    spawnPos = new Vector2(Main.spawnTileX * 16, Main.spawnTileY * 16 - 48);
-
-                    if (hasPersonalSpawn)
-                        Main.NewText("Your bed was not preserved — spawning at world spawn.", 255, 200, 100);
-                }
-
-                p.Teleport(spawnPos, 1);
-                p.fallStart = (ushort)(p.position.Y / 16f);
-
-                // Clear the saved pre-regen position so OnEnterWorld doesn't teleport
-                // the player back into what is now solid terrain on the next world load.
-                p.GetModPlayer<DynamicWorldsPlayer>().ClearSavedPosition();
-
-                // 10 seconds of featherfall so the player lands safely after teleport.
-                // Buff durations are in game ticks (60 ticks = 1 second).
-                p.AddBuff(Terraria.ID.BuffID.Featherfall, 60 * 10);
-
-                // Respawn town NPCs at their original coordinates with fall immunity
-                RespawnTownNPCsAtOriginalPositions(before);
-
-                // Advance game time by several in-game days to allow NPCs to move in and settle
-                // Each in-game day = 24 * 3600 ticks (86400 ticks per day)
-                AdvanceGameTime(3); // Advance 3 in-game days
-
-                var after = WorldProgressUtil.Capture();
-                WorldProgressUtil.PrintSnapshotToChat("After regen", after);
-
-                mod.Logger.Info("=== WORLD REGENERATION COMPLETE ===");
-                Main.NewText("World regeneration complete!", 80, 255, 80);
-            }
-            finally
+            GenerationProgress progress = pending.Progress;
+            if (progress != null)
             {
-                WorldGen.gen  = false;
-                regenRunning  = false;
+                progress.TotalWeight += 5.75d;
+                WorldGenerator.CurrentGenerationProgress = progress;
             }
+
+            RunProgressStep(progress, "Restoring world progression...", 1d, () =>
+            {
+                WorldProgressUtil.Apply(pending.Snapshot);
+            });
+
+            RunProgressStep(progress, "Applying world settings...", 0.5d, () =>
+            {
+                ApplyConfigurableWorldSettings(pending.Snapshot, announce: false);
+            });
+
+            RunProgressStep(progress, "Clearing erased tiles...", 0.75d, () =>
+            {
+                ErasedTileSystem.ClearAllErasedTiles(announce: false);
+            });
+
+            RunProgressStep(progress, "Restoring building zones...", 1.25d, () =>
+            {
+                BuildingAnchorSystem.RestoreAllZones(announce: false);
+            });
+
+            RunProgressStep(progress, "Restoring anchored tiles...", 1.25d, () =>
+            {
+                AnchoredTileSystem.RestoreAllAnchoredTiles(announce: false);
+            });
+
+            RegenExecutionResult result = DeterminePlayerPlacement(pending);
+
+            RunProgressStep(progress, "Restoring town NPCs and housing...", 0.75d, () =>
+            {
+                NpcRestoreSummary summary = RespawnTownNPCsAtOriginalPositions(pending.Snapshot, announce: false);
+                result.RespawnedNpcCount = summary.RespawnedCount;
+                result.RestoredHousingCount = summary.RestoredHousingCount;
+            });
+
+            RunProgressStep(progress, "Finalizing regenerated world...", 0.25d, () =>
+            {
+                WorldProgressUtil.SaveToFile();
+            });
+
+            mod.Logger.Info("Preserved world state applied successfully.");
+            return result;
+        }
+
+        private static WorldProgressSnapshot CloneSnapshot(WorldProgressSnapshot source)
+        {
+            if (source == null)
+                return null;
+
+            return new WorldProgressSnapshot
+            {
+                worldName = source.worldName,
+                worldId = source.worldId,
+                worldSeed = source.worldSeed,
+                hardMode = source.hardMode,
+                crimson = source.crimson,
+                gameMode = source.gameMode,
+                downedBoss1 = source.downedBoss1,
+                downedBoss2 = source.downedBoss2,
+                downedBoss3 = source.downedBoss3,
+                downedQueenBee = source.downedQueenBee,
+                downedSlimeKing = source.downedSlimeKing,
+                downedDeerclops = source.downedDeerclops,
+                downedMech1 = source.downedMech1,
+                downedMech2 = source.downedMech2,
+                downedMech3 = source.downedMech3,
+                downedPlantera = source.downedPlantera,
+                downedGolem = source.downedGolem,
+                downedFishron = source.downedFishron,
+                downedMoonLord = source.downedMoonLord,
+                downedGoblins = source.downedGoblins,
+                downedFrostLegion = source.downedFrostLegion,
+                downedPirates = source.downedPirates,
+                downedMartians = source.downedMartians,
+                downedPumpkinMoonKing = source.downedPumpkinMoonKing,
+                downedPumpkinMoonTree = source.downedPumpkinMoonTree,
+                downedFrostMoonIceQueen = source.downedFrostMoonIceQueen,
+                downedFrostMoonSantank = source.downedFrostMoonSantank,
+                downedFrostMoonTree = source.downedFrostMoonTree,
+                copperTier = source.copperTier,
+                ironTier = source.ironTier,
+                silverTier = source.silverTier,
+                goldTier = source.goldTier,
+                cobaltTier = source.cobaltTier,
+                mythrilTier = source.mythrilTier,
+                adamantiteTier = source.adamantiteTier,
+                collectedNpcTypes = source.collectedNpcTypes != null ? new List<int>(source.collectedNpcTypes) : new List<int>(),
+                npcPositions = source.npcPositions != null
+                    ? new List<(int type, float x, float y, string displayName, string species)>(source.npcPositions)
+                    : new List<(int type, float x, float y, string displayName, string species)>(),
+                npcHousing = source.npcHousing != null
+                    ? new List<(int type, int homeX, int homeY)>(source.npcHousing)
+                    : new List<(int type, int homeX, int homeY)>(),
+            };
+        }
+
+        private static Dictionary<Point16, SavedChestContents> CloneAnchoredChests()
+        {
+            var clone = new Dictionary<Point16, SavedChestContents>();
+            foreach (var kv in AnchoredTileSystem.AnchoredChests)
+                clone[kv.Key] = CloneChestContents(kv.Value);
+
+            return clone;
+        }
+
+        private static SavedChestContents CloneChestContents(SavedChestContents source)
+        {
+            var clone = new SavedChestContents
+            {
+                Position = source.Position,
+                Items = new Item[Chest.maxItems]
+            };
+
+            for (int i = 0; i < Chest.maxItems; i++)
+                clone.Items[i] = source.Items != null && i < source.Items.Length && source.Items[i] != null
+                    ? source.Items[i].Clone()
+                    : new Item();
+
+            return clone;
+        }
+
+        private static Dictionary<int, BuildingZone> CloneBuildingZones()
+        {
+            var clone = new Dictionary<int, BuildingZone>();
+            foreach (var kv in BuildingAnchorSystem.Zones)
+                clone[kv.Key] = BuildingZone.FromTag(kv.Value.ToTag());
+
+            return clone;
+        }
+
+        private static int ResolveNewSeed(string seedOverride, out string seedLabel)
+        {
+            var config = ModContent.GetInstance<DynamicWorldsConfig>();
+
+            if (!string.IsNullOrWhiteSpace(seedOverride))
+            {
+                int newSeed = int.TryParse(seedOverride, out int parsedSeed)
+                    ? parsedSeed & 0x7FFFFFFF
+                    : Math.Abs(seedOverride.GetHashCode()) & 0x7FFFFFFF;
+
+                seedLabel = seedOverride;
+                Main.NewText($"Using seed: {seedOverride} -> {newSeed}", 180, 180, 255);
+                return newSeed;
+            }
+
+            if (!config.RandomizeSeedEachRegen)
+            {
+                string currentSeedText = Main.ActiveWorldFileData?.SeedText ?? string.Empty;
+                int newSeed = int.TryParse(currentSeedText, out int parsedSeed)
+                    ? parsedSeed & 0x7FFFFFFF
+                    : Math.Abs(currentSeedText.GetHashCode()) & 0x7FFFFFFF;
+
+                seedLabel = string.IsNullOrWhiteSpace(currentSeedText) ? newSeed.ToString() : currentSeedText;
+                Main.NewText($"Reusing world seed for consistent layout: {seedLabel}", 180, 180, 255);
+                return newSeed;
+            }
+
+            int randomSeed = (int)(DateTime.Now.Ticks & 0x7FFFFFFF);
+            seedLabel = randomSeed.ToString();
+            Main.NewText($"Using random regen seed: {randomSeed}", 180, 180, 255);
+            return randomSeed;
+        }
+
+        private static void CopyPendingDataToLiveSystems(PendingRegenContext pending)
+        {
+            AnchoredTileSystem.AnchoredTiles.Clear();
+            foreach (var kv in pending.AnchoredTiles)
+                AnchoredTileSystem.AnchoredTiles[kv.Key] = kv.Value;
+
+            AnchoredTileSystem.AnchoredChests.Clear();
+            foreach (var kv in pending.AnchoredChests)
+                AnchoredTileSystem.AnchoredChests[kv.Key] = CloneChestContents(kv.Value);
+
+            ErasedTileSystem.ErasedTiles.Clear();
+            foreach (Point16 pos in pending.ErasedTiles)
+                ErasedTileSystem.ErasedTiles.Add(pos);
+
+            BuildingAnchorSystem.Zones.Clear();
+            foreach (var kv in pending.BuildingZones)
+                BuildingAnchorSystem.Zones[kv.Key] = kv.Value;
+        }
+
+        private static RegenExecutionResult DeterminePlayerPlacement(PendingRegenContext pending)
+        {
+            var result = new RegenExecutionResult
+            {
+                HadSavedSpawn = pending.SavedSpawnX >= 0 && pending.SavedSpawnY >= 0,
+                SpawnTileX = Main.spawnTileX,
+                SpawnTileY = Main.spawnTileY
+            };
+
+            if (!result.HadSavedSpawn)
+                return result;
+
+            Point16 savedSpawn = new Point16(pending.SavedSpawnX, pending.SavedSpawnY);
+            Point16 effectiveSpawn = savedSpawn;
+
+            if (BuildingAnchorSystem.TryTranslateSavedPoint(savedSpawn, out Point16 translatedSpawn))
+                effectiveSpawn = translatedSpawn;
+
+            if (effectiveSpawn.X >= 0 && effectiveSpawn.Y >= 0 && Player.CheckSpawn(effectiveSpawn.X, effectiveSpawn.Y))
+            {
+                result.UsePersonalSpawn = true;
+                result.SpawnTileX = effectiveSpawn.X;
+                result.SpawnTileY = effectiveSpawn.Y;
+            }
+
+            return result;
         }
 
         /// <summary>
-        /// Respawn only housed town NPCs at valid housing locations.
-        /// Uses Terraria's housing validation system to ensure homes are valid.
-        /// NPCs will be assigned to available housing within building zones and anchored tiles.
+        /// Respawn town NPCs and restore preserved housing assignments.
         /// </summary>
-        private static void RespawnTownNPCsAtOriginalPositions(WorldProgressSnapshot before)
+        private static NpcRestoreSummary RespawnTownNPCsAtOriginalPositions(WorldProgressSnapshot before, bool announce)
         {
             if (before?.collectedNpcTypes == null || before.collectedNpcTypes.Count == 0)
-                return;
+                return new NpcRestoreSummary(0, 0);
 
             int respawnedCount = 0;
+            int restoredHousingCount = 0;
 
             foreach (int npcType in before.collectedNpcTypes)
             {
-                // Find an empty NPC slot
-                int npcSlot = -1;
-                for (int i = 0; i < Main.npc.Length; i++)
+                int npcSlot = FindExistingNpcSlot(npcType);
+                bool createdNpc = false;
+
+                if (npcSlot == -1)
                 {
-                    if (!Main.npc[i].active)
-                    {
-                        npcSlot = i;
-                        break;
-                    }
+                    npcSlot = FindInactiveNpcSlot();
+                    createdNpc = npcSlot != -1;
                 }
 
                 if (npcSlot == -1)
                 {
-                    Main.NewText($"Could not respawn NPC: no free NPC slots.", 255, 150, 100);
+                    if (announce)
+                        Main.NewText("Could not respawn NPC: no free NPC slots.", 255, 150, 100);
+
                     continue;
                 }
 
-                // Try to get the original position and name from npcPositions if available
                 Vector2 spawnPos = new Vector2(Main.spawnTileX * 16, Main.spawnTileY * 16 - 48);
                 string displayName = "";
+                bool restoredHousing = TryResolvePreservedHousing(before, npcType, out Point16 resolvedHome);
                 
                 if (before.npcPositions != null)
                 {
@@ -236,31 +363,139 @@ namespace DynamicWorlds
                     }
                 }
 
-                // Spawn the NPC
-                NPC newNpc = new NPC();
-                newNpc.SetDefaults(npcType);
-                newNpc.position = spawnPos;
-                newNpc.active = true;
-                Main.npc[npcSlot] = newNpc;
-                
-                // Restore custom name if it was set
+                if (restoredHousing)
+                    spawnPos = FindSafeNPCSpawnLocation(resolvedHome.X, Math.Max(10, resolvedHome.Y - 3));
+
+                if (createdNpc)
+                    Main.npc[npcSlot] = new NPC();
+
+                Main.npc[npcSlot].SetDefaults(npcType);
+                Main.npc[npcSlot].whoAmI = npcSlot;
+                Main.npc[npcSlot].position = spawnPos;
+                Main.npc[npcSlot].active = true;
+
                 if (!string.IsNullOrEmpty(displayName))
                     Main.npc[npcSlot].GivenName = displayName;
-                
-                // Mark as not homeless - Terraria's system will auto-assign housing
-                // during the next update cycle when housing is available
-                Main.npc[npcSlot].homeless = false;
-                
-                // Add temporary fall immunity
-                Main.npc[npcSlot].AddBuff(BuffID.Featherfall, 60 * 10);
-                
+
+                if (restoredHousing)
+                {
+                    Main.npc[npcSlot].homeTileX = resolvedHome.X;
+                    Main.npc[npcSlot].homeTileY = resolvedHome.Y;
+                    Main.npc[npcSlot].homeless = false;
+                    WorldGen.TownManager.KickOut(Main.npc[npcSlot].type);
+                    WorldGen.TownManager.SetRoom(Main.npc[npcSlot].type, resolvedHome.X, resolvedHome.Y);
+                    restoredHousingCount++;
+                }
+                else
+                {
+                    Main.npc[npcSlot].homeTileX = -1;
+                    Main.npc[npcSlot].homeTileY = -1;
+                    Main.npc[npcSlot].homeless = true;
+                    WorldGen.TownManager.KickOut(Main.npc[npcSlot].type);
+                }
+
+                Main.npc[npcSlot].netUpdate = true;
                 respawnedCount++;
             }
 
-            if (respawnedCount > 0)
+            if (announce && respawnedCount > 0)
             {
                 Main.NewText($"Respawned {respawnedCount} town NPC{(respawnedCount == 1 ? "" : "s")}.", 150, 200, 255);
+                if (restoredHousingCount > 0)
+                    Main.NewText($"Reassigned {restoredHousingCount} preserved home{(restoredHousingCount == 1 ? "" : "s")}.", 180, 255, 180);
             }
+
+            return new NpcRestoreSummary(respawnedCount, restoredHousingCount);
+        }
+
+        private static int FindExistingNpcSlot(int npcType)
+        {
+            for (int i = 0; i < Main.npc.Length; i++)
+            {
+                if (Main.npc[i].active && Main.npc[i].type == npcType && Main.npc[i].townNPC)
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static int FindInactiveNpcSlot()
+        {
+            for (int i = 0; i < Main.npc.Length; i++)
+            {
+                if (!Main.npc[i].active)
+                    return i;
+            }
+
+            return -1;
+        }
+
+        private static bool TryResolvePreservedHousing(WorldProgressSnapshot before, int npcType, out Point16 resolvedHome)
+        {
+            resolvedHome = default;
+
+            if (before?.npcHousing == null || before.npcHousing.Count == 0)
+                return false;
+
+            var housingData = before.npcHousing.FirstOrDefault(h => h.type == npcType);
+            if (housingData == default || housingData.homeX < 0 || housingData.homeY < 0)
+                return false;
+
+            var candidateHomes = new HashSet<Point16>();
+            Point16 savedHome = new Point16(housingData.homeX, housingData.homeY);
+
+            if (BuildingAnchorSystem.TryTranslateSavedPoint(savedHome, out Point16 translatedZoneHome))
+                candidateHomes.Add(translatedZoneHome);
+
+            if (IsAnchoredHousingCandidate(savedHome))
+                candidateHomes.Add(savedHome);
+
+            foreach (Point16 candidate in candidateHomes)
+            {
+                if (TryValidateHousingCandidate(npcType, candidate, out resolvedHome))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsAnchoredHousingCandidate(Point16 savedHome)
+        {
+            for (int dx = -8; dx <= 8; dx++)
+            {
+                for (int dy = -6; dy <= 2; dy++)
+                {
+                    var check = new Point16(savedHome.X + dx, savedHome.Y + dy);
+                    if (AnchoredTileSystem.AnchoredTiles.ContainsKey(check))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryValidateHousingCandidate(int npcType, Point16 candidateHome, out Point16 resolvedHome)
+        {
+            resolvedHome = default;
+
+            int roomCheckX = candidateHome.X;
+            int roomCheckY = candidateHome.Y - 1;
+
+            if (!WorldGen.InWorld(roomCheckX, roomCheckY, 10))
+                return false;
+
+            if (!WorldGen.StartRoomCheck(roomCheckX, roomCheckY))
+                return false;
+
+            if (!WorldGen.RoomNeeds(npcType))
+                return false;
+
+            WorldGen.ScoreRoom(-1, npcType);
+            if (WorldGen.hiScore <= 0)
+                return false;
+
+            resolvedHome = new Point16((short)WorldGen.bestX, (short)WorldGen.bestY);
+            return true;
         }
 
         /// <summary>
@@ -344,7 +579,7 @@ namespace DynamicWorlds
         /// Apply config-aware world settings after regeneration.
         /// Allows player to choose whether to preserve evil type, dungeon side, etc.
         /// </summary>
-        private static void ApplyConfigurableWorldSettings(WorldProgressSnapshot before)
+        private static void ApplyConfigurableWorldSettings(WorldProgressSnapshot before, bool announce)
         {
             if (before == null)
                 return;
@@ -355,7 +590,8 @@ namespace DynamicWorlds
             if (config.PreserveEvilType)
             {
                 WorldGen.crimson = before.crimson;
-                Main.NewText("Evil type preserved from previous world.", 150, 200, 255);
+                if (announce)
+                    Main.NewText("Evil type preserved from previous world.", 150, 200, 255);
             }
 
             // Note: Dungeon side and biome features are baked into terrain during generation.
@@ -364,59 +600,32 @@ namespace DynamicWorlds
             // as aspirational features that would require custom world generation code.
             // For now, they serve as markers for future implementation.
             
-            if (config.PreserveDungeonSide)
+            if (announce && config.PreserveDungeonSide)
             {
-                Main.NewText("⚠ Dungeon side preservation not yet implemented (requires custom worldgen).", 255, 200, 100);
+                Main.NewText("Dungeon side preservation is not implemented yet.", 255, 200, 100);
             }
 
-            if (config.PreserveBiomeFeatures)
+            if (announce && config.PreserveBiomeFeatures)
             {
-                Main.NewText("⚠ Biome feature preservation not yet implemented (requires custom worldgen).", 255, 200, 100);
+                Main.NewText("Biome feature preservation is not implemented yet.", 255, 200, 100);
             }
         }
 
-        /// <summary>
-        /// Advances game time by the specified number of in-game days.
-        /// Each day = 86400 ticks (24 * 3600).
-        /// This allows NPCs to move in, settle, and perform daily activities.
-        /// </summary>
-        private static void AdvanceGameTime(int days)
+        private static void RunProgressStep(GenerationProgress progress, string message, double weight, Action action)
         {
-            const int ticksPerDay = 24 * 3600; // 86400 ticks per in-game day
-            int totalTicks = days * ticksPerDay;
-
-            Main.NewText($"Advancing time by {days} in-game day{(days == 1 ? "" : "s")}...", 100, 200, 255);
-
-            // Advance time by incrementing Main.time
-            // We do this in chunks to allow game logic to process properly
-            for (int i = 0; i < days; i++)
+            if (progress == null)
             {
-                Main.time += ticksPerDay;
-                
-                // Every 14400 ticks (6 in-game hours), run world updates
-                // This allows NPCs to update their positions and AI
-                if (Main.time >= 14400)
-                {
-                    Main.time = 0;
-                    Main.dayTime = !Main.dayTime; // Toggle between day/night
-                    
-                    // Update day/night status for all NPCs
-                    for (int npcIndex = 0; npcIndex < Main.npc.Length; npcIndex++)
-                    {
-                        NPC npc = Main.npc[npcIndex];
-                        if (npc.active && npc.townNPC)
-                        {
-                            // Force NPC to update their position/home
-                            npc.ai[0] = 0;
-                            npc.ai[1] = 0;
-                        }
-                    }
-                }
+                action();
+                return;
             }
 
-            Main.NewText($"Time advanced! NPCs should now be moving in.", 100, 255, 100);
+            progress.Message = message;
+            progress.Start(weight);
+            progress.Set(0.05d);
+            action();
+            progress.Set(1d);
+            progress.End();
         }
-
     }
 
     public class RegenWorldCommand : ModCommand
@@ -780,4 +989,3 @@ namespace DynamicWorlds
         }
     }
 }
-
