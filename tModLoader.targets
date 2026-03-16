@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+	<!-- tModLoader targets file for mod development -->
+	<!-- This file contains the configuration needed for tModLoader mod builds -->
+	
+	<!-- Include paths for Terraria and tModLoader references -->
+	<ItemGroup>
+		<Reference Include="Terraria">
+			<HintPath>$(tModLoaderPath)\Terraria.exe</HintPath>
+			<Private>False</Private>
+		</Reference>
+		<Reference Include="tModLoader">
+			<HintPath>$(tModLoaderPath)\tModLoader.exe</HintPath>
+			<Private>False</Private>
+		</Reference>
+	</ItemGroup>
+	
+	<!-- Set default tModLoaderPath if not defined -->
+	<PropertyGroup Condition="'$(tModLoaderPath)' == ''">
+		<tModLoaderPath>C:\Program Files\tModLoader</tModLoaderPath>
+	</PropertyGroup>
+</Project>
