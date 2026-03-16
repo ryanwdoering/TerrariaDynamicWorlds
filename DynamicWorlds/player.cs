@@ -35,8 +35,8 @@ namespace DynamicWorlds
             if (!hasEraser)
                 Player.QuickSpawnItem(Player.GetSource_GiftOrReward(), eraserType);
 
-            // Gift one Building Anchor if not already in inventory
-            int baType = ModContent.ItemType<BuildingAnchorItem>();
+            // Gift one Structure Anchor if not already in inventory
+            int baType = ModContent.ItemType<StructureAnchorItem>();
             bool hasBA = Player.inventory.Any(i => i != null && i.type == baType);
             if (!hasBA)
                 Player.QuickSpawnItem(Player.GetSource_GiftOrReward(), baType);

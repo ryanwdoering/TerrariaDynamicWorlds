@@ -13,7 +13,7 @@ namespace DynamicWorlds
         public static int RestoreTrackedVanillaPylons(bool forceRefresh = false)
         {
             var candidateTiles = AnchoredTileSystem.AnchoredTiles.Keys
-                .Concat(BuildingAnchorSystem.Zones.Values.SelectMany(zone => zone.Tiles.Keys));
+                .Concat(StructureAnchorSystem.Zones.Values.SelectMany(zone => zone.Tiles.Keys));
 
             return RestoreVanillaPylons(candidateTiles, forceRefresh);
         }

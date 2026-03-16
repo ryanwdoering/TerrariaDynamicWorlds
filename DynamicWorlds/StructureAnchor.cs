@@ -15,7 +15,7 @@ using Terraria.ModLoader.IO;
 namespace DynamicWorlds
 {
     // -------------------------------------------------------------------------
-    //  A single saved building zone: bounds + full per-tile snapshot.
+    //  A single saved structure zone: bounds + full per-tile snapshot.
     //  Tiles are stored relative to the zone's top-left so translation is just
     //  adding deltaY to every position when restoring.
     // -------------------------------------------------------------------------
@@ -32,7 +32,7 @@ namespace DynamicWorlds
         // Full tile snapshots, keyed by world position
         public Dictionary<Point16, AnchoredTileData> Tiles = new();
 
-        // Unique id so multiple Building Anchors can coexist
+        // Unique id so multiple Structure Anchors can coexist
         public int Id;
 
         // Chest contents for any chests captured inside the zone.
@@ -168,7 +168,7 @@ namespace DynamicWorlds
             }
 
             ModContent.GetInstance<DynamicWorlds>().Logger.Info(
-                $"[BA] Captured zone #{id}: TL=({topLeft.X},{topLeft.Y}) BR=({bottomRight.X},{bottomRight.Y}) centerX={centerX} SavedGroundY={zone.SavedGroundY} worldSurface={Main.worldSurface:F0}");
+                $"[SA] Captured zone #{id}: TL=({topLeft.X},{topLeft.Y}) BR=({bottomRight.X},{bottomRight.Y}) centerX={centerX} SavedGroundY={zone.SavedGroundY} worldSurface={Main.worldSurface:F0}");
 
             // Snapshot every tile in the bounding rectangle
             for (int x = topLeft.X; x <= bottomRight.X; x++)
@@ -223,7 +223,7 @@ namespace DynamicWorlds
             int newTopY    = TopLeft.Y + deltaY;
 
             ModContent.GetInstance<DynamicWorlds>().Logger.Info(
-                $"[BA] RestoreZone #{Id}: centerX={centerX} SavedGroundY={SavedGroundY} newGroundY={newGroundY} deltaY={deltaY} TL.Y={TopLeft.Y}->{newTopY} BR.Y={BottomRight.Y}->{newBottomY} worldSurface={Main.worldSurface:F0}");
+                $"[SA] RestoreZone #{Id}: centerX={centerX} SavedGroundY={SavedGroundY} newGroundY={newGroundY} deltaY={deltaY} TL.Y={TopLeft.Y}->{newTopY} BR.Y={BottomRight.Y}->{newBottomY} worldSurface={Main.worldSurface:F0}");
 
             // 1. Bridge only small support gaps beneath the restored footprint.
             //    If the structure lands on a floating island, leave it floating
@@ -426,7 +426,7 @@ namespace DynamicWorlds
     }
 
     // -------------------------------------------------------------------------
-    //  World-level system: holds all registered building zones.
+    //  World-level system: holds all registered structure zones.
     // -------------------------------------------------------------------------
     public readonly struct RestoredZoneTransform
     {
@@ -449,7 +449,7 @@ namespace DynamicWorlds
             new Point16(point.X, (short)(point.Y + DeltaY));
     }
 
-    public class BuildingAnchorSystem : ModSystem
+    public class StructureAnchorSystem : ModSystem
     {
         // Keyed by zone Id
         public static readonly Dictionary<int, BuildingZone> Zones = new();
@@ -477,7 +477,7 @@ namespace DynamicWorlds
             LastRestoreTransforms.Clear();
         }
 
-        // Refresh the snapshot of chest contents in all building zones.
+        // Refresh the snapshot of chest contents in all structure zones.
         // Call this immediately before worldgen to capture any new items added to zone chests.
         public static void RefreshAllChestSnapshots()
         {
@@ -513,10 +513,10 @@ namespace DynamicWorlds
             int restoredPylons = PylonRestoreHelper.RestoreVanillaPylons(
                 Zones.Values.SelectMany(zone => zone.Tiles.Keys));
             if (restoredPylons > 0)
-                ModContent.GetInstance<DynamicWorlds>().Logger.Info($"[BuildingAnchor] Re-registered {restoredPylons} restored vanilla pylon(s).");
+                ModContent.GetInstance<DynamicWorlds>().Logger.Info($"[StructureAnchor] Re-registered {restoredPylons} restored vanilla pylon(s).");
 
             if (announce && Main.netMode == NetmodeID.SinglePlayer)
-                Main.NewText($"Restored {Zones.Count} building zone{(Zones.Count == 1 ? "" : "s")}.", 180, 220, 255);
+                Main.NewText($"Restored {Zones.Count} structure zone{(Zones.Count == 1 ? "" : "s")}.", 180, 220, 255);
         }
 
         public static bool TryTranslateSavedPoint(Point16 savedPoint, out Point16 translatedPoint)
@@ -531,6 +531,39 @@ namespace DynamicWorlds
             }
 
             translatedPoint = default;
+            return false;
+        }
+
+        public static bool TryGetZoneAt(Point16 tilePosition, out int zoneId)
+        {
+            foreach (var kv in Zones)
+            {
+                BuildingZone zone = kv.Value;
+                if (tilePosition.X >= zone.TopLeft.X && tilePosition.X <= zone.BottomRight.X &&
+                    tilePosition.Y >= zone.TopLeft.Y && tilePosition.Y <= zone.BottomRight.Y)
+                {
+                    zoneId = kv.Key;
+                    return true;
+                }
+            }
+
+            zoneId = -1;
+            return false;
+        }
+
+        public static bool TryFindOverlappingAnchoredTile(Point16 topLeft, Point16 bottomRight, out Point16 overlapTile)
+        {
+            foreach (Point16 tilePosition in AnchoredTileSystem.AnchoredTiles.Keys)
+            {
+                if (tilePosition.X >= topLeft.X && tilePosition.X <= bottomRight.X &&
+                    tilePosition.Y >= topLeft.Y && tilePosition.Y <= bottomRight.Y)
+                {
+                    overlapTile = tilePosition;
+                    return true;
+                }
+            }
+
+            overlapTile = default;
             return false;
         }
 
@@ -568,35 +601,30 @@ namespace DynamicWorlds
         {
             Player player = Main.LocalPlayer;
             if (player?.HeldItem == null) return;
-            if (player.HeldItem.type != ModContent.ItemType<BuildingAnchorItem>()) return;
-            if (ZoneIcon == null || !ZoneIcon.IsLoaded) return;
+            if (!WorldToolOverlayHelper.IsHoldingWorldTool(player)) return;
 
             SpriteBatch sb       = Main.spriteBatch;
-            Texture2D   tex      = ZoneIcon.Value;
             Vector2     screenPos = Main.screenPosition;
-            Texture2D   pixel    = TextureAssets.MagicPixel.Value;
 
-            sb.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend,
-                SamplerState.PointClamp, null, null, null,
-                Main.GameViewMatrix.TransformationMatrix);
+            WorldToolOverlayHelper.BeginOverlay(sb);
 
             // Draw all registered zones
             foreach (var kv in Zones)
             {
                 var zone = kv.Value;
-                DrawZoneOverlay(sb, tex, pixel, zone.TopLeft, zone.BottomRight, screenPos,
+                WorldToolOverlayHelper.DrawAreaOverlay(sb, zone.TopLeft, zone.BottomRight, screenPos,
                     new Color(100, 180, 255) * 0.35f, Color.DeepSkyBlue);
             }
 
             // Draw in-progress drag preview for the item being held
-            var mp = player.GetModPlayer<BuildingAnchorPlayer>();
+            var mp = player.GetModPlayer<StructureAnchorPlayer>();
             if (mp.IsDragging)
             {
                 int x0 = System.Math.Min(mp.DragStart.X, mp.DragEnd.X);
                 int x1 = System.Math.Max(mp.DragStart.X, mp.DragEnd.X);
                 int y0 = System.Math.Min(mp.DragStart.Y, mp.DragEnd.Y);
                 int y1 = System.Math.Max(mp.DragStart.Y, mp.DragEnd.Y);
-                DrawZoneOverlay(sb, tex, pixel,
+                WorldToolOverlayHelper.DrawAreaOverlay(sb,
                     new Point16(x0, y0), new Point16(x1, y1), screenPos,
                     Color.Gold * 0.3f, Color.Gold);
             }
@@ -604,32 +632,13 @@ namespace DynamicWorlds
             sb.End();
         }
 
-        private static void DrawZoneOverlay(SpriteBatch sb, Texture2D icon, Texture2D pixel,
-            Point16 tl, Point16 br, Vector2 screenPos, Color fill, Color outline)
-        {
-            Rectangle rect = new Rectangle(
-                (int)(tl.X * 16 - screenPos.X),
-                (int)(tl.Y * 16 - screenPos.Y),
-                (br.X - tl.X + 1) * 16,
-                (br.Y - tl.Y + 1) * 16);
-
-            sb.Draw(pixel, rect, fill);
-
-            // Outline
-            int t = 2;
-            sb.Draw(pixel, new Rectangle(rect.X, rect.Y, rect.Width, t), outline);
-            sb.Draw(pixel, new Rectangle(rect.X, rect.Bottom - t, rect.Width, t), outline);
-            sb.Draw(pixel, new Rectangle(rect.X, rect.Y, t, rect.Height), outline);
-            sb.Draw(pixel, new Rectangle(rect.Right - t, rect.Y, t, rect.Height), outline);
-        }
-
     }
 
     // -------------------------------------------------------------------------
     //  ModPlayer: tracks drag state and the zone assigned to this item instance.
-    //  Each BuildingAnchorItem stores its own zone id in the item's tag.
+    //  Each StructureAnchorItem stores its own zone id in the item's tag.
     // -------------------------------------------------------------------------
-    public class BuildingAnchorPlayer : ModPlayer
+    public class StructureAnchorPlayer : ModPlayer
     {
         public bool    IsDragging = false;
         public Point16 DragStart;
@@ -646,7 +655,7 @@ namespace DynamicWorlds
                 return;
             }
 
-            bool holding = Player.HeldItem?.type == ModContent.ItemType<BuildingAnchorItem>();
+            bool holding = Player.HeldItem?.type == ModContent.ItemType<StructureAnchorItem>();
             if (!holding)
             {
                 if (IsDragging) CancelDrag();
@@ -701,7 +710,7 @@ namespace DynamicWorlds
 
             if (x1 - x0 < 1 || y1 - y0 < 1)
             {
-                Main.NewText("Drag a larger area to define a building zone.", 255, 200, 80);
+                Main.NewText("Drag a larger area to define a structure zone.", 255, 200, 80);
                 return;
             }
 
@@ -709,7 +718,7 @@ namespace DynamicWorlds
             var br = new Point16(x1, y1);
 
             // Check for overlap with ANY existing zone — no zone may overlap another
-            foreach (var kv in BuildingAnchorSystem.Zones)
+            foreach (var kv in StructureAnchorSystem.Zones)
             {
                 var z = kv.Value;
                 bool overlapX = x0 <= z.BottomRight.X && x1 >= z.TopLeft.X;
@@ -721,13 +730,21 @@ namespace DynamicWorlds
                 }
             }
 
-            int newId = BuildingAnchorSystem.NextId();
+            if (StructureAnchorSystem.TryFindOverlappingAnchoredTile(tl, br, out Point16 anchoredOverlap))
+            {
+                Main.NewText(
+                    $"Structure zones cannot overlap individually anchored tiles. Remove the anchor at ({anchoredOverlap.X}, {anchoredOverlap.Y}) first.",
+                    255, 120, 120);
+                return;
+            }
+
+            int newId = StructureAnchorSystem.NextId();
             var zone  = BuildingZone.Capture(tl, br, newId);
-            BuildingAnchorSystem.Zones[newId] = zone;
+            StructureAnchorSystem.Zones[newId] = zone;
 
             int area = (x1 - x0 + 1) * (y1 - y0 + 1);
             Main.NewText(
-                $"Building zone #{newId} created: {zone.Width}×{zone.Height} ({area} tiles). Ground ref Y={zone.SavedGroundY}.",
+                $"Structure zone #{newId} created: {zone.Width}×{zone.Height} ({area} tiles). Ground ref Y={zone.SavedGroundY}.",
                 100, 200, 255);
         }
 
@@ -735,7 +752,7 @@ namespace DynamicWorlds
         {
             // Find which zone (if any) contains this click position
             int zoneIdToRemove = -1;
-            foreach (var kv in BuildingAnchorSystem.Zones)
+            foreach (var kv in StructureAnchorSystem.Zones)
             {
                 var zone = kv.Value;
                 bool insideX = clickPos.X >= zone.TopLeft.X && clickPos.X <= zone.BottomRight.X;
@@ -749,15 +766,15 @@ namespace DynamicWorlds
 
             if (zoneIdToRemove != -1)
             {
-                if (BuildingAnchorSystem.Zones.Remove(zoneIdToRemove))
+                if (StructureAnchorSystem.Zones.Remove(zoneIdToRemove))
                 {
                     SoundEngine.PlaySound(SoundID.Item14, Player.position);
-                    Main.NewText($"Building zone #{zoneIdToRemove} removed. ({BuildingAnchorSystem.Zones.Count} zones remain)", 255, 150, 100);
+                    Main.NewText($"Structure zone #{zoneIdToRemove} removed. ({StructureAnchorSystem.Zones.Count} zones remain)", 255, 150, 100);
                 }
             }
             else
             {
-                Main.NewText("Shift+Click on a zone to remove it.", 255, 200, 80);
+                Main.NewText("Shift+Click on a structure zone to remove it.", 255, 200, 80);
             }
         }
 
@@ -769,24 +786,25 @@ namespace DynamicWorlds
     }
 
     // -------------------------------------------------------------------------
-    //  The Building Anchor item. Now purely a tool for creating/editing zones.
+    //  The Structure Anchor item. Now purely a tool for creating/editing zones.
     //  Zones are owned by the world, not by individual items.
     // -------------------------------------------------------------------------
-    public class BuildingAnchorItem : ModItem
+    public class StructureAnchorItem : ModItem
     {
         public override void SetDefaults()
         {
             Item.width        = 32;
             Item.height       = 32;
-            Item.useStyle     = ItemUseStyleID.Swing;
-            Item.useTime      = 20;
-            Item.useAnimation = 20;
+            Item.useStyle     = ItemUseStyleID.Shoot;
+            Item.useTime      = 12;
+            Item.useAnimation = 18;
             Item.rare         = ItemRarityID.LightRed;
             Item.value        = Item.buyPrice(gold: 1);
             Item.maxStack     = 1;
             Item.consumable   = false;
+            Item.noMelee      = true;
             Item.noUseGraphic = false;
-            Item.UseSound     = SoundID.Item1;
+            Item.UseSound     = SoundID.Item8;
         }
 
         public override bool CanUseItem(Player player) => true;
@@ -795,20 +813,26 @@ namespace DynamicWorlds
         public override void ModifyTooltips(System.Collections.Generic.List<Terraria.ModLoader.TooltipLine> tooltips)
         {
             tooltips.Add(new TooltipLine(Mod, "BAInfo1",
-                "Left-click and drag to create building zones.")
+                "Left-click and drag to project structure zones.")
                 { OverrideColor = Color.LimeGreen });
             tooltips.Add(new TooltipLine(Mod, "BAInfo2",
-                "Shift+Click inside a zone to remove it.")
+                "Shift+Click inside a structure zone to remove it.")
                 { OverrideColor = Color.LightBlue });
             tooltips.Add(new TooltipLine(Mod, "BAInfo3",
                 "Zones are saved to the world and persist through resets.")
                 { OverrideColor = Color.Gray });
+            tooltips.Add(new TooltipLine(Mod, "BAInfo4",
+                "Structure zones cannot overlap individually anchored tiles.")
+                { OverrideColor = Color.Orange });
+            tooltips.Add(new TooltipLine(Mod, "BAInfo5",
+                "Hold any world tool to see anchors, erasures, and structure zones.")
+                { OverrideColor = Color.LightSkyBlue });
             
-            int zoneCount = BuildingAnchorSystem.Zones.Count;
+            int zoneCount = StructureAnchorSystem.Zones.Count;
             if (zoneCount > 0)
             {
                 tooltips.Add(new TooltipLine(Mod, "BAZoneCount",
-                    $"World has {zoneCount} building zone{(zoneCount == 1 ? "" : "s")}")
+                    $"World has {zoneCount} structure zone{(zoneCount == 1 ? "" : "s")}")
                     { OverrideColor = Color.DeepSkyBlue });
             }
         }

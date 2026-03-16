@@ -379,6 +379,9 @@ namespace DynamicWorlds
                 return;
 
             var pos = new Point16(x, y);
+            if (StructureAnchorSystem.TryGetZoneAt(pos, out _))
+                return;
+
             if (!AnchoredTiles.ContainsKey(pos))
             {
                 AnchoredTiles[pos] = AnchoredTileData.CaptureFromWorld(x, y);
@@ -416,6 +419,13 @@ namespace DynamicWorlds
                     Main.NewText($"Anchor cap reached ({cap}). Defeat more bosses to expand your limit.", 255, 200, 80);
                     return;
                 }
+
+                if (StructureAnchorSystem.TryGetZoneAt(pos, out int zoneId))
+                {
+                    Main.NewText($"Tile is inside structure zone #{zoneId}. Remove the zone before anchoring tiles there.", 255, 140, 100);
+                    return;
+                }
+
                 AnchoredTiles[pos] = AnchoredTileData.CaptureFromWorld(x, y);
                 TryCaptureContainer(x, y);
             }
@@ -433,6 +443,7 @@ namespace DynamicWorlds
             int cap     = GetTileCap();
             int added   = 0;
             int skipped = 0;
+            int blockedByZones = 0;
 
             for (int x = x0; x <= x1; x++)
             {
@@ -449,6 +460,12 @@ namespace DynamicWorlds
                     }
                     else if (!AnchoredTiles.ContainsKey(pos))
                     {
+                        if (StructureAnchorSystem.TryGetZoneAt(pos, out _))
+                        {
+                            blockedByZones++;
+                            continue;
+                        }
+
                         if (AnchoredTiles.Count >= cap)
                         {
                             skipped++;
@@ -470,6 +487,8 @@ namespace DynamicWorlds
             else
             {
                 Main.NewText($"Anchored {added} tile{(added == 1 ? "" : "s")} in {w}×{h} region. ({AnchoredTiles.Count}/{cap} used)", 100, 255, 100);
+                if (blockedByZones > 0)
+                    Main.NewText($"{blockedByZones} tile{(blockedByZones == 1 ? "" : "s")} skipped — structure zones already protect those spaces.", 255, 140, 100);
                 if (skipped > 0)
                     Main.NewText($"{skipped} tile{(skipped == 1 ? "" : "s")} skipped — anchor cap reached. Defeat more bosses to expand your limit.", 255, 200, 80);
             }
@@ -655,32 +674,28 @@ namespace DynamicWorlds
             if (player == null || player.HeldItem == null)
                 return;
 
-            if (player.HeldItem.type != ModContent.ItemType<RealityAnchor>())
-                return;
-
-            if (ActuatorIcon == null || !ActuatorIcon.IsLoaded)
+            if (!WorldToolOverlayHelper.IsHoldingWorldTool(player))
                 return;
 
             SpriteBatch spriteBatch = Main.spriteBatch;
-            Texture2D tex = ActuatorIcon.Value;
             Vector2 screenPos = Main.screenPosition;
 
-            spriteBatch.Begin(
-                SpriteSortMode.Deferred,
-                BlendState.AlphaBlend,
-                SamplerState.PointClamp,
-                null, null, null,
-                Main.GameViewMatrix.TransformationMatrix);
+            WorldToolOverlayHelper.BeginOverlay(spriteBatch);
 
             // Draw all anchored tiles
             foreach (var kv in AnchoredTiles)
             {
                 Point16 p = kv.Key;
 
-                if (!IsOnScreen(p))
+                if (!WorldToolOverlayHelper.IsTileOnScreen(p))
                     continue;
 
-                DrawAnchorIcon(spriteBatch, tex, p, screenPos, Color.White * 0.8f);
+                WorldToolOverlayHelper.DrawTileOverlay(
+                    spriteBatch,
+                    p,
+                    screenPos,
+                    new Color(70, 235, 255) * 0.22f,
+                    Color.Cyan);
             }
 
             // Draw the live drag-preview rectangle
@@ -698,63 +713,17 @@ namespace DynamicWorlds
                 Color previewColor = mp.DragRemoving
                     ? Color.Red * 0.5f
                     : Color.Cyan * 0.5f;
-
-                // Filled translucent rectangle preview
-                Texture2D pixel = Terraria.GameContent.TextureAssets.MagicPixel.Value;
-                Rectangle screenRect = new Rectangle(
-                    (int)(x0 * 16 - screenPos.X),
-                    (int)(y0 * 16 - screenPos.Y),
-                    (x1 - x0 + 1) * 16,
-                    (y1 - y0 + 1) * 16);
-                spriteBatch.Draw(pixel, screenRect, previewColor);
-
-                // Outline
                 Color outlineColor = mp.DragRemoving ? Color.Red : Color.Cyan;
-                DrawRectangleOutline(spriteBatch, pixel, screenRect, outlineColor, 2);
-
-                // Icons on perimeter tiles of the preview
-                for (int x = x0; x <= x1; x++)
-                {
-                    for (int y = y0; y <= y1; y++)
-                    {
-                        bool onEdge = x == x0 || x == x1 || y == y0 || y == y1;
-                        if (!onEdge && (x1 - x0) > 4 && (y1 - y0) > 4)
-                            continue;
-
-                        var pp = new Point16(x, y);
-                        if (!IsOnScreen(pp))
-                            continue;
-
-                        if (!AnchoredTiles.ContainsKey(pp))
-                            DrawAnchorIcon(spriteBatch, tex, pp, screenPos, previewColor * 1.6f);
-                    }
-                }
+                WorldToolOverlayHelper.DrawAreaOverlay(
+                    spriteBatch,
+                    new Point16(x0, y0),
+                    new Point16(x1, y1),
+                    screenPos,
+                    previewColor,
+                    outlineColor);
             }
 
             spriteBatch.End();
-        }
-
-        private static bool IsOnScreen(Point16 p)
-        {
-            return p.X >= Main.screenPosition.X / 16 - 2
-                && p.X <= (Main.screenPosition.X + Main.screenWidth)  / 16 + 2
-                && p.Y >= Main.screenPosition.Y / 16 - 2
-                && p.Y <= (Main.screenPosition.Y + Main.screenHeight) / 16 + 2;
-        }
-
-        private static void DrawAnchorIcon(SpriteBatch sb, Texture2D tex, Point16 p, Vector2 screenPos, Color color)
-        {
-            Vector2 drawPos = new Vector2(p.X * 16 + 8f, p.Y * 16 + 8f) - screenPos;
-            Vector2 origin  = new Vector2(tex.Width / 2f, tex.Height / 2f);
-            sb.Draw(tex, drawPos, null, color, 0f, origin, 0.6f, SpriteEffects.None, 0f);
-        }
-
-        private static void DrawRectangleOutline(SpriteBatch sb, Texture2D pixel, Rectangle rect, Color color, int thickness)
-        {
-            sb.Draw(pixel, new Rectangle(rect.X, rect.Y, rect.Width, thickness), color);
-            sb.Draw(pixel, new Rectangle(rect.X, rect.Bottom - thickness, rect.Width, thickness), color);
-            sb.Draw(pixel, new Rectangle(rect.X, rect.Y, thickness, rect.Height), color);
-            sb.Draw(pixel, new Rectangle(rect.Right - thickness, rect.Y, thickness, rect.Height), color);
         }
     }
 
@@ -837,15 +806,16 @@ namespace DynamicWorlds
         {
             Item.width        = 32;
             Item.height       = 32;
-            Item.useStyle     = ItemUseStyleID.Swing;
-            Item.useTime      = 20;
-            Item.useAnimation = 20;
+            Item.useStyle     = ItemUseStyleID.Shoot;
+            Item.useTime      = 12;
+            Item.useAnimation = 18;
             Item.rare         = ItemRarityID.LightRed;
             Item.value        = Item.buyPrice(gold: 1);
             Item.maxStack     = 1;
             Item.consumable   = false;
+            Item.noMelee      = true;
             Item.noUseGraphic = false;
-            Item.UseSound     = SoundID.Item1;
+            Item.UseSound     = SoundID.Item8;
         }
 
         public override bool CanUseItem(Player player)
@@ -930,6 +900,14 @@ namespace DynamicWorlds
                 tooltips.Add(new TooltipLine(Mod, "AnchorRightClick",
                     "Right-click to restore all anchored tiles now.")
                     { OverrideColor = Color.LightBlue });
+
+            tooltips.Add(new TooltipLine(Mod, "AnchorOverlayHint",
+                "Hold any world tool to see anchors, erasures, and structure zones.")
+                { OverrideColor = Color.LightSkyBlue });
+
+            tooltips.Add(new TooltipLine(Mod, "AnchorZoneRule",
+                "Tiles inside structure zones cannot be anchored separately.")
+                { OverrideColor = Color.Orange });
         }
     }
 }

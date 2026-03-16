@@ -72,7 +72,7 @@ namespace DynamicWorlds
             WorldProgressUtil.PrintSnapshotToChat("Before regen", before);
 
             AnchoredTileSystem.RefreshAllChestSnapshots();
-            BuildingAnchorSystem.RefreshAllChestSnapshots();
+            StructureAnchorSystem.RefreshAllChestSnapshots();
 
             Player player = Main.LocalPlayer;
             int newSeed = ResolveNewSeed(seedOverride, out string seedLabel);
@@ -125,9 +125,9 @@ namespace DynamicWorlds
                 ErasedTileSystem.ClearAllErasedTiles(announce: false);
             });
 
-            RunProgressStep(progress, "Restoring building zones...", 1.25d, () =>
+            RunProgressStep(progress, "Restoring structure zones...", 1.25d, () =>
             {
-                BuildingAnchorSystem.RestoreAllZones(announce: false);
+                StructureAnchorSystem.RestoreAllZones(announce: false);
             });
 
             RunProgressStep(progress, "Restoring anchored tiles...", 1.25d, () =>
@@ -233,7 +233,7 @@ namespace DynamicWorlds
         private static Dictionary<int, BuildingZone> CloneBuildingZones()
         {
             var clone = new Dictionary<int, BuildingZone>();
-            foreach (var kv in BuildingAnchorSystem.Zones)
+            foreach (var kv in StructureAnchorSystem.Zones)
                 clone[kv.Key] = BuildingZone.FromTag(kv.Value.ToTag());
 
             return clone;
@@ -286,9 +286,9 @@ namespace DynamicWorlds
             foreach (Point16 pos in pending.ErasedTiles)
                 ErasedTileSystem.ErasedTiles.Add(pos);
 
-            BuildingAnchorSystem.Zones.Clear();
+            StructureAnchorSystem.Zones.Clear();
             foreach (var kv in pending.BuildingZones)
-                BuildingAnchorSystem.Zones[kv.Key] = kv.Value;
+                StructureAnchorSystem.Zones[kv.Key] = kv.Value;
         }
 
         private static RegenExecutionResult DeterminePlayerPlacement(PendingRegenContext pending)
@@ -306,7 +306,7 @@ namespace DynamicWorlds
             Point16 savedSpawn = new Point16(pending.SavedSpawnX, pending.SavedSpawnY);
             Point16 effectiveSpawn = savedSpawn;
 
-            if (BuildingAnchorSystem.TryTranslateSavedPoint(savedSpawn, out Point16 translatedSpawn))
+            if (StructureAnchorSystem.TryTranslateSavedPoint(savedSpawn, out Point16 translatedSpawn))
                 effectiveSpawn = translatedSpawn;
 
             if (effectiveSpawn.X >= 0 && effectiveSpawn.Y >= 0 && Player.CheckSpawn(effectiveSpawn.X, effectiveSpawn.Y))
@@ -444,7 +444,7 @@ namespace DynamicWorlds
             var candidateHomes = new HashSet<Point16>();
             Point16 savedHome = new Point16(housingData.homeX, housingData.homeY);
 
-            if (BuildingAnchorSystem.TryTranslateSavedPoint(savedHome, out Point16 translatedZoneHome))
+            if (StructureAnchorSystem.TryTranslateSavedPoint(savedHome, out Point16 translatedZoneHome))
                 candidateHomes.Add(translatedZoneHome);
 
             if (IsAnchoredHousingCandidate(savedHome))
@@ -841,14 +841,14 @@ namespace DynamicWorlds
         }
     }
 
-    // /dwinfo — prints a summary of all saved anchored tiles, erased tiles, and building zones.
+    // /dwinfo — prints a summary of all saved anchored tiles, erased tiles, and structure zones.
     public class DwInfoCommand : ModCommand
     {
         public override CommandType Type => CommandType.Chat;
         public override string Command => "dwinfo";
         public override string Usage => "/dwinfo";
         public override string Description =>
-            "Shows a summary of all anchored tiles, erased tiles, and building zones saved for this world.";
+            "Shows a summary of all anchored tiles, erased tiles, and structure zones saved for this world.";
 
         public override void Action(CommandCaller caller, string input, string[] args)
         {
@@ -891,10 +891,10 @@ namespace DynamicWorlds
             }
 
             // ── Building zones ────────────────────────────────────────────────
-            int zoneCount = BuildingAnchorSystem.Zones.Count;
-            Main.NewText($"[Building Zones] {zoneCount} zone{(zoneCount == 1 ? "" : "s")}", 180, 255, 180);
+            int zoneCount = StructureAnchorSystem.Zones.Count;
+            Main.NewText($"[Structure Zones] {zoneCount} zone{(zoneCount == 1 ? "" : "s")}", 180, 255, 180);
 
-            foreach (var kv in BuildingAnchorSystem.Zones)
+            foreach (var kv in StructureAnchorSystem.Zones)
             {
                 var z = kv.Value;
                 Main.NewText(
@@ -908,14 +908,14 @@ namespace DynamicWorlds
         }
     }
 
-    // /clearzones — removes all building zones from the world.
+    // /clearzones — removes all structure zones from the world.
     public class ClearZonesCommand : ModCommand
     {
         public override CommandType Type => CommandType.Chat;
         public override string Command => "clearzones";
         public override string Usage => "/clearzones";
         public override string Description =>
-            "Removes all building anchor zones from the world (does not affect anchored or erased tiles).";
+            "Removes all structure anchor zones from the world (does not affect anchored or erased tiles).";
 
         public override void Action(CommandCaller caller, string input, string[] args)
         {
@@ -925,16 +925,16 @@ namespace DynamicWorlds
                 return;
             }
 
-            int count = BuildingAnchorSystem.Zones.Count;
+            int count = StructureAnchorSystem.Zones.Count;
             if (count == 0)
             {
-                Main.NewText("No building zones to clear.", 180, 180, 180);
+                Main.NewText("No structure zones to clear.", 180, 180, 180);
                 return;
             }
 
-            BuildingAnchorSystem.Zones.Clear();
+            StructureAnchorSystem.Zones.Clear();
 
-            Main.NewText($"Cleared {count} building zone{(count == 1 ? "" : "s")}.", 255, 150, 100);
+            Main.NewText($"Cleared {count} structure zone{(count == 1 ? "" : "s")}.", 255, 150, 100);
         }
     }
 

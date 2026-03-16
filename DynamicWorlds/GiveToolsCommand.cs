@@ -13,7 +13,7 @@ namespace DynamicWorlds
 
 		public override string Usage => "/dwtools";
 
-		public override string Description => "Gives you all three Dynamic Worlds tools: Reality Anchor, Reality Eraser, and Building Anchor.";
+		public override string Description => "Gives you all three Dynamic Worlds tools: Reality Anchor, Reality Eraser, and Structure Anchor.";
 
 		public override void Action(CommandCaller caller, string input, string[] args)
 		{
@@ -33,8 +33,8 @@ namespace DynamicWorlds
 				player.QuickSpawnItem(player.GetSource_GiftOrReward(), eraserType);
 			}
 
-			// Give Building Anchor
-			int builderType = ModContent.ItemType<BuildingAnchorItem>();
+			// Give Structure Anchor
+			int builderType = ModContent.ItemType<StructureAnchorItem>();
 			if (builderType > 0)
 			{
 				player.QuickSpawnItem(player.GetSource_GiftOrReward(), builderType);

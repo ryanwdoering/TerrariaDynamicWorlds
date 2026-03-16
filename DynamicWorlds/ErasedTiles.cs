@@ -234,30 +234,26 @@ namespace DynamicWorlds
             if (player == null || player.HeldItem == null)
                 return;
 
-            if (player.HeldItem.type != ModContent.ItemType<RealityEraser>())
-                return;
-
-            if (ErasedIcon == null || !ErasedIcon.IsLoaded)
+            if (!WorldToolOverlayHelper.IsHoldingWorldTool(player))
                 return;
 
             SpriteBatch spriteBatch = Main.spriteBatch;
-            Texture2D tex = ErasedIcon.Value;
             Vector2 screenPos = Main.screenPosition;
 
-            spriteBatch.Begin(
-                SpriteSortMode.Deferred,
-                BlendState.AlphaBlend,
-                SamplerState.PointClamp,
-                null, null, null,
-                Main.GameViewMatrix.TransformationMatrix);
+            WorldToolOverlayHelper.BeginOverlay(spriteBatch);
 
             // Draw all erased tiles
             foreach (var pos in ErasedTiles)
             {
-                if (!IsOnScreen(pos))
+                if (!WorldToolOverlayHelper.IsTileOnScreen(pos))
                     continue;
 
-                DrawEraserIcon(spriteBatch, tex, pos, screenPos, Color.White * 0.8f);
+                WorldToolOverlayHelper.DrawTileOverlay(
+                    spriteBatch,
+                    pos,
+                    screenPos,
+                    new Color(255, 120, 70) * 0.22f,
+                    Color.OrangeRed);
             }
 
             // Draw the live drag-preview rectangle
@@ -275,62 +271,17 @@ namespace DynamicWorlds
                 Color previewColor = mp.DragRemoving
                     ? Color.Lime * 0.5f
                     : Color.OrangeRed * 0.5f;
-
-                Texture2D pixel = TextureAssets.MagicPixel.Value;
-                Rectangle screenRect = new Rectangle(
-                    (int)(x0 * 16 - screenPos.X),
-                    (int)(y0 * 16 - screenPos.Y),
-                    (x1 - x0 + 1) * 16,
-                    (y1 - y0 + 1) * 16);
-                spriteBatch.Draw(pixel, screenRect, previewColor);
-
-                // Outline
                 Color outlineColor = mp.DragRemoving ? Color.Lime : Color.OrangeRed;
-                DrawRectangleOutline(spriteBatch, pixel, screenRect, outlineColor, 2);
-
-                // Icons on perimeter tiles of the preview
-                for (int x = x0; x <= x1; x++)
-                {
-                    for (int y = y0; y <= y1; y++)
-                    {
-                        bool onEdge = x == x0 || x == x1 || y == y0 || y == y1;
-                        if (!onEdge && (x1 - x0) > 4 && (y1 - y0) > 4)
-                            continue;
-
-                        var pp = new Point16(x, y);
-                        if (!IsOnScreen(pp))
-                            continue;
-
-                        if (!ErasedTiles.Contains(pp))
-                            DrawEraserIcon(spriteBatch, tex, pp, screenPos, previewColor * 1.6f);
-                    }
-                }
+                WorldToolOverlayHelper.DrawAreaOverlay(
+                    spriteBatch,
+                    new Point16(x0, y0),
+                    new Point16(x1, y1),
+                    screenPos,
+                    previewColor,
+                    outlineColor);
             }
 
             spriteBatch.End();
-        }
-
-        private static bool IsOnScreen(Point16 p)
-        {
-            return p.X >= Main.screenPosition.X / 16 - 2
-                && p.X <= (Main.screenPosition.X + Main.screenWidth)  / 16 + 2
-                && p.Y >= Main.screenPosition.Y / 16 - 2
-                && p.Y <= (Main.screenPosition.Y + Main.screenHeight) / 16 + 2;
-        }
-
-        private static void DrawEraserIcon(SpriteBatch sb, Texture2D tex, Point16 p, Vector2 screenPos, Color color)
-        {
-            Vector2 drawPos = new Vector2(p.X * 16 + 8f, p.Y * 16 + 8f) - screenPos;
-            Vector2 origin  = new Vector2(tex.Width / 2f, tex.Height / 2f);
-            sb.Draw(tex, drawPos, null, color, 0f, origin, 0.6f, SpriteEffects.None, 0f);
-        }
-
-        private static void DrawRectangleOutline(SpriteBatch sb, Texture2D pixel, Rectangle rect, Color color, int thickness)
-        {
-            sb.Draw(pixel, new Rectangle(rect.X, rect.Y, rect.Width, thickness), color);
-            sb.Draw(pixel, new Rectangle(rect.X, rect.Bottom - thickness, rect.Width, thickness), color);
-            sb.Draw(pixel, new Rectangle(rect.X, rect.Y, thickness, rect.Height), color);
-            sb.Draw(pixel, new Rectangle(rect.Right - thickness, rect.Y, thickness, rect.Height), color);
         }
     }
 
@@ -413,15 +364,16 @@ namespace DynamicWorlds
         {
             Item.width        = 32;
             Item.height       = 32;
-            Item.useStyle     = ItemUseStyleID.Swing;
-            Item.useTime      = 20;
-            Item.useAnimation = 20;
+            Item.useStyle     = ItemUseStyleID.Shoot;
+            Item.useTime      = 12;
+            Item.useAnimation = 18;
             Item.rare         = ItemRarityID.LightRed;
             Item.value        = Item.buyPrice(gold: 1);
             Item.maxStack     = 1;
             Item.consumable   = false;
+            Item.noMelee      = true;
             Item.noUseGraphic = false;
-            Item.UseSound     = SoundID.Item1;
+            Item.UseSound     = SoundID.Item8;
         }
 
         public override bool CanUseItem(Player player)
@@ -490,6 +442,10 @@ namespace DynamicWorlds
                 tooltips.Add(new TooltipLine(Mod, "EraserRightClick",
                     "Right-click to erase all marked tiles now.")
                     { OverrideColor = Color.LightBlue });
+
+            tooltips.Add(new TooltipLine(Mod, "EraserOverlayHint",
+                "Hold any world tool to see anchors, erasures, and structure zones.")
+                { OverrideColor = Color.LightSkyBlue });
         }
     }
 }

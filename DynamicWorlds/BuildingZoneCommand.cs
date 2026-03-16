@@ -14,7 +14,7 @@ namespace DynamicWorlds
 
 		public override string Usage => "/dwzone [list|clear|clearall] [id]";
 
-		public override string Description => "Manage building zones in the world.";
+			public override string Description => "Manage structure zones in the world.";
 
 		public override void Action(CommandCaller caller, string input, string[] args)
 		{
@@ -62,14 +62,14 @@ namespace DynamicWorlds
 
 		private void ListZones(CommandCaller caller)
 		{
-			if (BuildingAnchorSystem.Zones.Count == 0)
+			if (StructureAnchorSystem.Zones.Count == 0)
 			{
-				caller.Reply("No building zones in this world.", Color.LimeGreen);
+				caller.Reply("No structure zones in this world.", Color.LimeGreen);
 				return;
 			}
 
-			caller.Reply($"Building Zones ({BuildingAnchorSystem.Zones.Count} total):", Color.DeepSkyBlue);
-			foreach (var kv in BuildingAnchorSystem.Zones)
+			caller.Reply($"Structure Zones ({StructureAnchorSystem.Zones.Count} total):", Color.DeepSkyBlue);
+			foreach (var kv in StructureAnchorSystem.Zones)
 			{
 				var zone = kv.Value;
 				int area = zone.Width * zone.Height;
@@ -81,10 +81,10 @@ namespace DynamicWorlds
 
 		private void RemoveZone(CommandCaller caller, int zoneId)
 		{
-			if (BuildingAnchorSystem.Zones.TryGetValue(zoneId, out var zone))
+			if (StructureAnchorSystem.Zones.TryGetValue(zoneId, out var zone))
 			{
-				BuildingAnchorSystem.Zones.Remove(zoneId);
-				caller.Reply($"Building zone #{zoneId} removed. ({BuildingAnchorSystem.Zones.Count} zones remain)", 
+				StructureAnchorSystem.Zones.Remove(zoneId);
+				caller.Reply($"Structure zone #{zoneId} removed. ({StructureAnchorSystem.Zones.Count} zones remain)", 
 					new Color(255, 150, 100));
 			}
 			else
@@ -95,15 +95,15 @@ namespace DynamicWorlds
 
 		private void ClearAllZones(CommandCaller caller)
 		{
-			int count = BuildingAnchorSystem.Zones.Count;
+			int count = StructureAnchorSystem.Zones.Count;
 			if (count == 0)
 			{
 				caller.Reply("No zones to clear.", Color.Yellow);
 				return;
 			}
 
-			BuildingAnchorSystem.Zones.Clear();
-			caller.Reply($"Cleared all {count} building zone{(count == 1 ? "" : "s")}.", 
+			StructureAnchorSystem.Zones.Clear();
+			caller.Reply($"Cleared all {count} structure zone{(count == 1 ? "" : "s")}.", 
 				new Color(255, 150, 100));
 		}
 	}
