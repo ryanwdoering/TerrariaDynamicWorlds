@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -27,6 +28,7 @@ namespace DynamicWorlds
         public Dictionary<Point16, SavedChestContents> AnchoredChests = new();
         public HashSet<Point16> ErasedTiles = new();
         public Dictionary<int, BuildingZone> BuildingZones = new();
+        public Dictionary<int, BiomeDowserZone> BiomeDowserZones = new();
         public int NewSeed;
         public string SeedLabel = string.Empty;
         public int SavedSpawnX = -1;
@@ -37,16 +39,41 @@ namespace DynamicWorlds
         public string StatusMessage = "Preparing regeneration...";
         public bool GenerationSucceeded;
         public RegenExecutionResult ExecutionResult = new RegenExecutionResult();
+        public int CycleIndex = 1;
+        public int CycleCount = 1;
+        public string SeedOverride;
+        public string SnapshotFolderPath;
+    }
+
+    internal sealed class QueuedRepeatRegen
+    {
+        public int NextCycleIndex = 1;
+        public int CycleCount = 1;
+        public int DelayTicks = 60;
+        public string SeedOverride;
+        public string SnapshotFolderPath;
+    }
+
+    internal sealed class PendingCycleScreenshot
+    {
+        public string FolderPath;
+        public string FilePath;
+        public string SeedLabel;
+        public int CycleIndex = 1;
+        public int CycleCount = 1;
+        public int DelayTicks = 12;
     }
 
     public class DynamicWorldRegenSystem : ModSystem
     {
         private static PendingRegenContext _pending;
         private static RegenLoadingUI _loadingUi;
+        private static QueuedRepeatRegen _queuedRepeat;
+        private static PendingCycleScreenshot _pendingScreenshot;
 
         internal static PendingRegenContext CurrentContext => _pending;
 
-        public static bool IsBusy => _pending != null;
+        public static bool IsBusy => _pending != null || _queuedRepeat != null || _pendingScreenshot != null;
 
         public static bool SuppressPlayerPositionSave => _pending != null;
 
@@ -63,6 +90,24 @@ namespace DynamicWorlds
             _pending.StatusMessage = "Saving current world...";
 
             WorldGen.SaveAndQuit(() => Main.QueueMainThreadAction(BeginGenerationFromMenu));
+        }
+
+        public override void OnWorldLoad()
+        {
+            if (_pending == null)
+            {
+                _queuedRepeat = null;
+                _pendingScreenshot = null;
+            }
+        }
+
+        public override void OnWorldUnload()
+        {
+            if (_pending == null)
+            {
+                _queuedRepeat = null;
+                _pendingScreenshot = null;
+            }
         }
 
         public override void PostWorldGen()
@@ -106,12 +151,69 @@ namespace DynamicWorlds
             EnsureLoadingUi();
         }
 
+        public override void PostUpdatePlayers()
+        {
+            if (_pending != null)
+                return;
+
+            if (Main.netMode != NetmodeID.SinglePlayer || Main.gameMenu)
+                return;
+
+            if (_pendingScreenshot != null)
+            {
+                if (_pendingScreenshot.DelayTicks > 0)
+                    _pendingScreenshot.DelayTicks--;
+
+                return;
+            }
+
+            if (_queuedRepeat == null)
+                return;
+
+            if (_queuedRepeat.DelayTicks > 0)
+            {
+                _queuedRepeat.DelayTicks--;
+                return;
+            }
+
+            QueuedRepeatRegen queuedRepeat = _queuedRepeat;
+            _queuedRepeat = null;
+            SingleplayerRegenHelper.RegenerateWorldWithProgress(
+                string.IsNullOrWhiteSpace(queuedRepeat.SeedOverride) ? null : queuedRepeat.SeedOverride,
+                queuedRepeat.NextCycleIndex,
+                queuedRepeat.CycleCount,
+                queuedRepeat.SnapshotFolderPath);
+        }
+
+        public override void PostDrawInterface(SpriteBatch spriteBatch)
+        {
+            if (_pendingScreenshot == null || _pendingScreenshot.DelayTicks > 0)
+                return;
+
+            PendingCycleScreenshot screenshot = _pendingScreenshot;
+            _pendingScreenshot = null;
+
+            if (!TrySaveCurrentFrame(screenshot, out string savedPath))
+            {
+                Main.NewText("Cycle screenshot capture failed. Continuing multiregen.", 255, 200, 100);
+                return;
+            }
+
+            ModContent.GetInstance<DynamicWorlds>().Logger.Info(
+                $"[Regen] Saved multiregen screenshot for cycle {screenshot.CycleIndex}/{screenshot.CycleCount}: {savedPath}");
+
+            if (screenshot.CycleCount > 1 && screenshot.CycleIndex >= screenshot.CycleCount)
+                Main.NewText($"Completed {screenshot.CycleCount} world regeneration cycles!", 80, 255, 80);
+        }
+
         public static bool TryHandlePostRegenEnter(Player player)
         {
             if (_pending == null || _pending.Stage != RegenLifecycleStage.ReloadingWorld)
                 return false;
 
-            RegenExecutionResult result = _pending.ExecutionResult ?? new RegenExecutionResult();
+            PendingRegenContext completedCycle = _pending;
+            RegenExecutionResult result = completedCycle.ExecutionResult ?? new RegenExecutionResult();
+            bool suppressCycleChat = completedCycle.CycleCount > 1 && !string.IsNullOrWhiteSpace(completedCycle.SnapshotFolderPath);
             Vector2 spawnPos;
 
             if (result.UsePersonalSpawn)
@@ -119,7 +221,8 @@ namespace DynamicWorlds
                 player.SpawnX = result.SpawnTileX;
                 player.SpawnY = result.SpawnTileY;
                 spawnPos = new Vector2(result.SpawnTileX * 16f, result.SpawnTileY * 16f - 48f);
-                Main.NewText("Your bed survived — spawning there.", 180, 255, 180);
+                if (!suppressCycleChat)
+                    Main.NewText("Your bed survived — spawning there.", 180, 255, 180);
             }
             else
             {
@@ -127,7 +230,7 @@ namespace DynamicWorlds
                 player.SpawnY = -1;
                 spawnPos = new Vector2(Main.spawnTileX * 16f, Main.spawnTileY * 16f - 48f);
 
-                if (result.HadSavedSpawn)
+                if (result.HadSavedSpawn && !suppressCycleChat)
                     Main.NewText("Your bed was not preserved — spawning at world spawn.", 255, 200, 100);
             }
 
@@ -136,7 +239,7 @@ namespace DynamicWorlds
             player.GetModPlayer<DynamicWorldsPlayer>().ClearSavedPosition();
             player.AddBuff(BuffID.Featherfall, 60 * 10);
 
-            if (result.RespawnedNpcCount > 0)
+            if (result.RespawnedNpcCount > 0 && !suppressCycleChat)
             {
                 Main.NewText($"Respawned {result.RespawnedNpcCount} town NPC{(result.RespawnedNpcCount == 1 ? "" : "s")}.", 150, 200, 255);
 
@@ -148,9 +251,31 @@ namespace DynamicWorlds
                 }
             }
 
-            WorldProgressUtil.PrintSnapshotToChat("After regen", WorldProgressUtil.Capture());
+            if (!suppressCycleChat)
+                WorldProgressUtil.PrintSnapshotToChat("After regen", WorldProgressUtil.Capture());
             WorldProgressUtil.SaveToFile();
-            Main.NewText("World regeneration complete!", 80, 255, 80);
+            ScheduleCycleScreenshot(completedCycle);
+            bool hasQueuedRepeat = completedCycle.CycleIndex < completedCycle.CycleCount;
+            if (hasQueuedRepeat)
+            {
+                QueueFollowupRegen(completedCycle);
+                if (!suppressCycleChat)
+                {
+                    Main.NewText(
+                        $"Regen cycle {completedCycle.CycleIndex}/{completedCycle.CycleCount} complete. Next cycle starts shortly...",
+                        120,
+                        220,
+                        255);
+                }
+            }
+            else if (completedCycle.CycleCount > 1 && !suppressCycleChat)
+            {
+                Main.NewText($"Completed {completedCycle.CycleCount} world regeneration cycles!", 80, 255, 80);
+            }
+            else if (!suppressCycleChat)
+            {
+                Main.NewText("World regeneration complete!", 80, 255, 80);
+            }
 
             WorldGenerator.CurrentGenerationProgress = null;
             Main.statusText = string.Empty;
@@ -250,9 +375,142 @@ namespace DynamicWorlds
         {
             WorldGenerator.CurrentGenerationProgress = null;
             Main.statusText = "World regeneration failed.";
+            _queuedRepeat = null;
+            _pendingScreenshot = null;
             Main.LoadWorlds();
             Main.GoToWorldSelect();
             _pending = null;
+        }
+
+        private static void QueueFollowupRegen(PendingRegenContext completedCycle)
+        {
+            _queuedRepeat = new QueuedRepeatRegen
+            {
+                NextCycleIndex = completedCycle.CycleIndex + 1,
+                CycleCount = completedCycle.CycleCount,
+                DelayTicks = 60,
+                SeedOverride = completedCycle.SeedOverride,
+                SnapshotFolderPath = completedCycle.SnapshotFolderPath
+            };
+        }
+
+        private static void ScheduleCycleScreenshot(PendingRegenContext completedCycle)
+        {
+            if (completedCycle == null ||
+                completedCycle.CycleCount <= 1 ||
+                string.IsNullOrWhiteSpace(completedCycle.SnapshotFolderPath))
+                return;
+
+            _pendingScreenshot = new PendingCycleScreenshot
+            {
+                FolderPath = completedCycle.SnapshotFolderPath,
+                FilePath = BuildCycleScreenshotPath(
+                    completedCycle.SnapshotFolderPath,
+                    completedCycle.CycleIndex,
+                    completedCycle.CycleCount,
+                    completedCycle.SeedLabel),
+                SeedLabel = completedCycle.SeedLabel,
+                CycleIndex = completedCycle.CycleIndex,
+                CycleCount = completedCycle.CycleCount,
+                DelayTicks = 12
+            };
+        }
+
+        private static string BuildCycleScreenshotPath(string folderPath, int cycleIndex, int cycleCount, string seedLabel)
+        {
+            string cyclePart = cycleCount > 1
+                ? $"cycle-{cycleIndex:D2}-of-{cycleCount:D2}"
+                : $"cycle-{cycleIndex:D2}";
+            string seedPart = string.IsNullOrWhiteSpace(seedLabel)
+                ? string.Empty
+                : $"_seed-{SanitizeFileNamePart(seedLabel)}";
+            return Path.Combine(folderPath, $"{cyclePart}{seedPart}.png");
+        }
+
+        private static string SanitizeFileNamePart(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "unknown";
+
+            char[] chars = value.Trim().ToCharArray();
+            for (int i = 0; i < chars.Length; i++)
+            {
+                if (Array.IndexOf(Path.GetInvalidFileNameChars(), chars[i]) >= 0 || char.IsWhiteSpace(chars[i]))
+                    chars[i] = '_';
+            }
+
+            string sanitized = new string(chars).Trim('_');
+            if (string.IsNullOrWhiteSpace(sanitized))
+                sanitized = "unknown";
+
+            return sanitized.Length > 48 ? sanitized.Substring(0, 48) : sanitized;
+        }
+
+        private static bool TrySaveCurrentFrame(PendingCycleScreenshot screenshot, out string savedPath)
+        {
+            savedPath = screenshot?.FilePath ?? string.Empty;
+
+            try
+            {
+                if (screenshot == null || string.IsNullOrWhiteSpace(screenshot.FolderPath) || string.IsNullOrWhiteSpace(screenshot.FilePath))
+                    return false;
+
+                GraphicsDevice graphicsDevice = Main.instance?.GraphicsDevice;
+                if (graphicsDevice == null)
+                    return false;
+
+                int width = graphicsDevice.PresentationParameters.BackBufferWidth;
+                int height = graphicsDevice.PresentationParameters.BackBufferHeight;
+                if (width <= 0 || height <= 0)
+                    return false;
+
+                Directory.CreateDirectory(screenshot.FolderPath);
+
+                Color[] pixels = new Color[width * height];
+                graphicsDevice.GetBackBufferData(pixels);
+
+                using var texture = new Texture2D(graphicsDevice, width, height, false, SurfaceFormat.Color);
+                texture.SetData(pixels);
+
+                using (FileStream stream = File.Create(screenshot.FilePath))
+                    texture.SaveAsPng(stream, width, height);
+
+                AppendScreenshotManifestEntry(screenshot);
+                savedPath = screenshot.FilePath;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                ModContent.GetInstance<DynamicWorlds>().Logger.Warn(
+                    $"[Regen] Failed to save multiregen screenshot for cycle {screenshot?.CycleIndex}/{screenshot?.CycleCount}.",
+                    ex);
+                return false;
+            }
+        }
+
+        private static void AppendScreenshotManifestEntry(PendingCycleScreenshot screenshot)
+        {
+            try
+            {
+                string manifestPath = Path.Combine(screenshot.FolderPath, "manifest.txt");
+                bool writeHeader = !File.Exists(manifestPath);
+                using var writer = new StreamWriter(manifestPath, append: true);
+
+                if (writeHeader)
+                {
+                    writer.WriteLine("Dynamic Worlds multiregen screenshots");
+                    writer.WriteLine($"World: {Main.worldName}");
+                    writer.WriteLine($"Created: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+                    writer.WriteLine();
+                }
+
+                writer.WriteLine(
+                    $"Cycle {screenshot.CycleIndex}/{screenshot.CycleCount} | Seed {screenshot.SeedLabel ?? "unknown"} | {Path.GetFileName(screenshot.FilePath)}");
+            }
+            catch (Exception ex)
+            {
+                ModContent.GetInstance<DynamicWorlds>().Logger.Warn("[Regen] Failed to update multiregen screenshot manifest.", ex);
+            }
         }
     }
 
@@ -267,9 +525,19 @@ namespace DynamicWorlds
             GenerationProgress progress = pending.Progress;
             float overallProgress = progress != null ? MathHelper.Clamp((float)progress.TotalProgress, 0f, 1f) : 0f;
             string message = !string.IsNullOrWhiteSpace(progress?.Message) ? progress.Message : pending.StatusMessage;
-            string detail = string.IsNullOrWhiteSpace(pending.SeedLabel)
-                ? "Preserving anchored tiles, housing, and progression"
-                : $"Seed: {pending.SeedLabel}";
+            string cycleLabel = pending.CycleCount > 1
+                ? $"Cycle {pending.CycleIndex}/{pending.CycleCount}"
+                : string.Empty;
+            string seedLabel = !string.IsNullOrWhiteSpace(pending.SeedLabel)
+                ? $"Seed: {pending.SeedLabel}"
+                : string.Empty;
+            string detail = !string.IsNullOrWhiteSpace(cycleLabel) && !string.IsNullOrWhiteSpace(seedLabel)
+                ? $"{cycleLabel} • {seedLabel}"
+                : !string.IsNullOrWhiteSpace(cycleLabel)
+                    ? cycleLabel
+                    : !string.IsNullOrWhiteSpace(seedLabel)
+                        ? seedLabel
+                        : "Preserving anchored tiles, housing, and progression";
 
             Texture2D pixel = TextureAssets.MagicPixel.Value;
             int panelWidth = Math.Min(620, Main.screenWidth - 80);

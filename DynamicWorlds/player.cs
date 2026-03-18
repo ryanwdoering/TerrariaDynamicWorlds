@@ -41,6 +41,11 @@ namespace DynamicWorlds
             if (!hasBA)
                 Player.QuickSpawnItem(Player.GetSource_GiftOrReward(), baType);
 
+            int dowserType = ModContent.ItemType<BiomeDowser>();
+            bool hasDowser = Player.inventory.Any(i => i != null && i.type == dowserType);
+            if (!hasDowser)
+                Player.QuickSpawnItem(Player.GetSource_GiftOrReward(), dowserType);
+
             if (DynamicWorldRegenSystem.TryHandlePostRegenEnter(Player))
                 return;
 

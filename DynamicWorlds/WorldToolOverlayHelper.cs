@@ -17,7 +17,8 @@ namespace DynamicWorlds
             int heldType = player.HeldItem.type;
             return heldType == ModContent.ItemType<RealityAnchor>()
                 || heldType == ModContent.ItemType<RealityEraser>()
-                || heldType == ModContent.ItemType<StructureAnchorItem>();
+                || heldType == ModContent.ItemType<StructureAnchorItem>()
+                || heldType == ModContent.ItemType<BiomeDowser>();
         }
 
         public static bool IsTileOnScreen(Point16 tilePosition)

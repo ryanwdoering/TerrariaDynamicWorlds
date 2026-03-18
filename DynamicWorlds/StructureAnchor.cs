@@ -117,7 +117,7 @@ namespace DynamicWorlds
                     break;
 
                 Tile tile = Framing.GetTileSafely(x, y);
-                if (tile.HasTile && !TileID.Sets.Platforms[tile.TileType])
+                if (IsSolidSupportTile(tile))
                     return y;
             }
 
@@ -125,23 +125,141 @@ namespace DynamicWorlds
         }
 
         // ── Biome fill ────────────────────────────────────────────────────────
-        // Returns the default solid tile type for the biome at world position (x, y).
-        private static ushort BiomeTileAt(int x, int y)
+        private static bool IsSolidSupportTile(Tile tile)
         {
-            // Snow biome
-            if (x < Main.maxTilesX * 0.35f && y < (int)Main.worldSurface + 40)
-                return TileID.SnowBlock;
+            return tile.HasTile
+                && !tile.IsActuated
+                && Main.tileSolid[tile.TileType]
+                && !TileID.Sets.Platforms[tile.TileType];
+        }
 
-            // Desert (right side surface)
-            if (x > Main.maxTilesX * 0.65f && y < (int)Main.worldSurface + 40)
-                return TileID.Sand;
+        private static ushort ResolveSupportFillTileType(int x, int y)
+        {
+            if (TrySampleNearbyTerrainFillType(x, y, out ushort sampledTileType))
+                return sampledTileType;
 
-            // Underground / cavern
-            if (y > Main.rockLayer)
+            return GuessFallbackFillTileType(x, y);
+        }
+
+        private static bool TrySampleNearbyTerrainFillType(int x, int y, out ushort fillTileType)
+        {
+            var scores = new Dictionary<ushort, int>();
+
+            for (int dy = 0; dy <= MaxSupportBridgeDepth + 2; dy++)
+            {
+                for (int dx = -6; dx <= 6; dx++)
+                {
+                    if (dx == 0 && dy == 0)
+                        continue;
+
+                    int sampleX = x + dx;
+                    int sampleY = y + dy;
+                    if (!WorldGen.InWorld(sampleX, sampleY, 1))
+                        continue;
+
+                    Tile sampleTile = Framing.GetTileSafely(sampleX, sampleY);
+                    if (!IsSolidSupportTile(sampleTile))
+                        continue;
+
+                    if (!TryNormalizeTerrainFillTileType(sampleTile.TileType, out ushort normalizedTileType))
+                        continue;
+
+                    int weight = 40 - (dy * 4) - (Math.Abs(dx) * 3);
+                    if (weight <= 0)
+                        continue;
+
+                    scores[normalizedTileType] = scores.TryGetValue(normalizedTileType, out int existingWeight)
+                        ? existingWeight + weight
+                        : weight;
+                }
+            }
+
+            if (scores.Count > 0)
+            {
+                fillTileType = scores
+                    .OrderByDescending(entry => entry.Value)
+                    .ThenBy(entry => entry.Key)
+                    .First()
+                    .Key;
+                return true;
+            }
+
+            fillTileType = 0;
+            return false;
+        }
+
+        private static bool TryNormalizeTerrainFillTileType(ushort tileType, out ushort normalizedTileType)
+        {
+            switch (tileType)
+            {
+                case TileID.Dirt:
+                case TileID.Mud:
+                case TileID.Stone:
+                case TileID.SnowBlock:
+                case TileID.IceBlock:
+                case TileID.BreakableIce:
+                case TileID.CorruptIce:
+                case TileID.HallowedIce:
+                case TileID.FleshIce:
+                case TileID.Sand:
+                case TileID.Ebonsand:
+                case TileID.Crimsand:
+                case TileID.Pearlsand:
+                case TileID.HardenedSand:
+                case TileID.CorruptHardenedSand:
+                case TileID.CrimsonHardenedSand:
+                case TileID.HallowHardenedSand:
+                case TileID.Sandstone:
+                case TileID.CorruptSandstone:
+                case TileID.CrimsonSandstone:
+                case TileID.HallowSandstone:
+                case TileID.Ebonstone:
+                case TileID.Crimstone:
+                case TileID.Pearlstone:
+                case TileID.ClayBlock:
+                case TileID.Silt:
+                case TileID.Slush:
+                case TileID.Marble:
+                case TileID.Granite:
+                case TileID.Hive:
+                case TileID.Ash:
+                    normalizedTileType = tileType;
+                    return true;
+                case TileID.Grass:
+                case TileID.CorruptGrass:
+                case TileID.CrimsonGrass:
+                case TileID.HallowedGrass:
+                case TileID.AshGrass:
+                    normalizedTileType = TileID.Dirt;
+                    return true;
+                case TileID.JungleGrass:
+                case TileID.MushroomGrass:
+                case TileID.CorruptJungleGrass:
+                case TileID.CrimsonJungleGrass:
+                    normalizedTileType = TileID.Mud;
+                    return true;
+                default:
+                    normalizedTileType = 0;
+                    return false;
+            }
+        }
+
+        // Returns a best-effort biome-appropriate fallback when nearby terrain
+        // sampling doesn't provide a natural fill tile.
+        private static ushort GuessFallbackFillTileType(int x, int y)
+        {
+            if (y >= Main.rockLayer)
                 return TileID.Stone;
 
-            // Default surface
-            return TileID.Dirt;
+            bool likelySnow = x < Main.maxTilesX * 0.35f && y < (int)Main.worldSurface + 60;
+            if (likelySnow)
+                return y > Main.worldSurface ? TileID.IceBlock : TileID.SnowBlock;
+
+            bool likelyDesert = x > Main.maxTilesX * 0.65f && y < (int)Main.worldSurface + 80;
+            if (likelyDesert)
+                return y > Main.worldSurface ? TileID.HardenedSand : TileID.Sand;
+
+            return y > Main.worldSurface ? TileID.Stone : TileID.Dirt;
         }
 
         // ── Capture ───────────────────────────────────────────────────────────
@@ -208,6 +326,137 @@ namespace DynamicWorlds
             return zone;
         }
 
+        public static BuildingZone CaptureConnected(Point16 selectionTopLeft, Point16 selectionBottomRight, IEnumerable<Point16> seedTiles, int id)
+        {
+            HashSet<Point16> connectedTiles = FindConnectedInterestingTiles(selectionTopLeft, selectionBottomRight, seedTiles);
+            if (connectedTiles.Count == 0)
+                return Capture(selectionTopLeft, selectionBottomRight, id);
+
+            short minX = connectedTiles.Min(pos => pos.X);
+            short maxX = connectedTiles.Max(pos => pos.X);
+            short minY = connectedTiles.Min(pos => pos.Y);
+            short maxY = connectedTiles.Max(pos => pos.Y);
+
+            var topLeft = new Point16(minX, minY);
+            var bottomRight = new Point16(maxX, maxY);
+            var zone = new BuildingZone
+            {
+                Id = id,
+                TopLeft = topLeft,
+                BottomRight = bottomRight,
+            };
+
+            int centerX = (topLeft.X + bottomRight.X) / 2;
+            int capStart = bottomRight.Y + 1;
+            zone.SavedGroundY = capStart;
+            for (int y = capStart; y < capStart + 500 && y < Main.maxTilesY - 10; y++)
+            {
+                Tile t = Framing.GetTileSafely(centerX, y);
+                if (t.HasTile && !TileID.Sets.Platforms[t.TileType])
+                {
+                    zone.SavedGroundY = y;
+                    break;
+                }
+            }
+
+            ModContent.GetInstance<DynamicWorlds>().Logger.Info(
+                $"[SA] Captured connected zone #{id}: TL=({topLeft.X},{topLeft.Y}) BR=({bottomRight.X},{bottomRight.Y}) seeds={connectedTiles.Count} centerX={centerX} SavedGroundY={zone.SavedGroundY} worldSurface={Main.worldSurface:F0}");
+
+            foreach (Point16 pos in connectedTiles)
+                zone.Tiles[pos] = AnchoredTileData.CaptureFromWorld(pos.X, pos.Y);
+
+            for (int i = 0; i < Main.chest.Length; i++)
+            {
+                Chest chest = Main.chest[i];
+                if (chest == null)
+                    continue;
+
+                var chestTopLeft = new Point16(chest.x, chest.y);
+                if (connectedTiles.Contains(chestTopLeft))
+                    zone.Chests[chestTopLeft] = SavedChestContents.CaptureFromWorld(chestTopLeft);
+            }
+
+            Player player = Main.LocalPlayer;
+            if (player != null &&
+                player.SpawnX >= topLeft.X && player.SpawnX <= bottomRight.X &&
+                player.SpawnY >= topLeft.Y && player.SpawnY <= bottomRight.Y)
+            {
+                zone.SavedSpawn = new Point16(player.SpawnX, player.SpawnY);
+            }
+
+            return zone;
+        }
+
+        private static HashSet<Point16> FindConnectedInterestingTiles(Point16 selectionTopLeft, Point16 selectionBottomRight, IEnumerable<Point16> seedTiles)
+        {
+            var connected = new HashSet<Point16>();
+            if (seedTiles == null)
+                return connected;
+
+            var queue = new Queue<Point16>();
+            foreach (Point16 seed in seedTiles)
+            {
+                if (!IsWithin(selectionTopLeft, selectionBottomRight, seed) || !IsInteresting(seed))
+                    continue;
+
+                if (connected.Add(seed))
+                    queue.Enqueue(seed);
+            }
+
+            Point16[] neighbors =
+            {
+                new Point16(1, 0),
+                new Point16(-1, 0),
+                new Point16(0, 1),
+                new Point16(0, -1),
+            };
+
+            while (queue.Count > 0)
+            {
+                Point16 current = queue.Dequeue();
+                foreach (Point16 neighborOffset in neighbors)
+                {
+                    var neighbor = new Point16(
+                        (short)(current.X + neighborOffset.X),
+                        (short)(current.Y + neighborOffset.Y));
+
+                    if (!IsWithin(selectionTopLeft, selectionBottomRight, neighbor))
+                        continue;
+
+                    if (!IsInteresting(neighbor))
+                        continue;
+
+                    if (connected.Add(neighbor))
+                        queue.Enqueue(neighbor);
+                }
+            }
+
+            return connected;
+        }
+
+        private static bool IsWithin(Point16 topLeft, Point16 bottomRight, Point16 point)
+        {
+            return point.X >= topLeft.X && point.X <= bottomRight.X
+                && point.Y >= topLeft.Y && point.Y <= bottomRight.Y;
+        }
+
+        private static bool IsInteresting(Point16 point)
+        {
+            if (!WorldGen.InWorld(point.X, point.Y, 1))
+                return false;
+
+            Tile tile = Framing.GetTileSafely(point.X, point.Y);
+            return tile.HasTile
+                || tile.WallType > 0
+                || tile.LiquidAmount > 0
+                || tile.RedWire
+                || tile.BlueWire
+                || tile.GreenWire
+                || tile.YellowWire
+                || tile.HasActuator
+                || tile.IsActuated;
+        }
+
         public ZoneRestorePlacement PredictRestorePlacement(int targetCenterX, int groundSearchStartY = 0)
         {
             int deltaX = targetCenterX - CenterX;
@@ -246,6 +495,7 @@ namespace DynamicWorlds
             int newBottomY = placement.BottomRight.Y;
             int newLeftX = placement.TopLeft.X;
             int newRightX = placement.BottomRight.X;
+            int lowestTouchedY = newBottomY;
 
             ModContent.GetInstance<DynamicWorlds>().Logger.Info(
                 $"{logPrefix} RestoreZone #{Id}: centerX={centerX} SavedGroundY={SavedGroundY} newGroundY={newGroundY} delta=({deltaX},{deltaY}) TL=({TopLeft.X},{TopLeft.Y})->({newLeftX},{newTopY}) BR=({BottomRight.X},{BottomRight.Y})->({newRightX},{newBottomY}) worldSurface={Main.worldSurface:F0}");
@@ -267,7 +517,8 @@ namespace DynamicWorlds
                     Tile tile = Framing.GetTileSafely(x, y);
                     tile.ClearEverything();
                     tile.HasTile  = true;
-                    tile.TileType = BiomeTileAt(x, y);
+                    tile.TileType = ResolveSupportFillTileType(x, y);
+                    lowestTouchedY = Math.Max(lowestTouchedY, y);
                 }
             }
 
@@ -352,7 +603,7 @@ namespace DynamicWorlds
                 System.Math.Max(0, newLeftX - 2),
                 System.Math.Max(0, newTopY - 2),
                 System.Math.Min(Main.maxTilesX, newRightX + 2),
-                System.Math.Min(Main.maxTilesY, newBottomY + 2));
+                System.Math.Min(Main.maxTilesY, lowestTouchedY + 2));
 
             // 7. Update zone metadata to the new position so the next regen is correct.
             //    Always update — even if deltaY==0, SavedGroundY may have changed.
@@ -362,13 +613,15 @@ namespace DynamicWorlds
 
                 // Rebuild tile snapshot at new position
                 var newTiles = new Dictionary<Point16, AnchoredTileData>();
-                for (int x = newTl.X; x <= newBr.X; x++)
+                foreach (var kv in Tiles)
                 {
-                    for (int y = newTl.Y; y <= newBr.Y; y++)
-                    {
-                        if (!WorldGen.InWorld(x, y, 1)) continue;
-                        newTiles[new Point16(x, y)] = AnchoredTileData.CaptureFromWorld(x, y);
-                    }
+                    int x = kv.Key.X + deltaX;
+                    int y = kv.Key.Y + deltaY;
+                    if (!WorldGen.InWorld(x, y, 1))
+                        continue;
+
+                    var newPos = new Point16((short)x, (short)y);
+                    newTiles[newPos] = AnchoredTileData.CaptureFromWorld(x, y);
                 }
 
                 // Rebuild chest refs at new positions
@@ -875,7 +1128,7 @@ namespace DynamicWorlds
                 "Structure zones cannot overlap individually anchored tiles.")
                 { OverrideColor = Color.Orange });
             tooltips.Add(new TooltipLine(Mod, "BAInfo5",
-                "Hold any world tool to see anchors, erasures, and structure zones.")
+                "Hold any world tool to see anchors, erasures, structure zones, and Biome Dowser zones.")
                 { OverrideColor = Color.LightSkyBlue });
             
             int zoneCount = StructureAnchorSystem.Zones.Count;

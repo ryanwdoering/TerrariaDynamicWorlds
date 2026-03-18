@@ -14,7 +14,7 @@ Mods: {
 					Anchor your bed to keep your spawn point after a regen.
 					Tiles inside structure zones cannot be anchored separately.
 					Right-click in your inventory to manually restore all anchored tiles at any time.
-					Hold any world tool to see anchors, erasures, and structure zones highlighted in the world.
+					Hold any world tool to see anchors, erasures, structure zones, and Biome Dowser zones highlighted in the world.
 					There is a limit to how many tiles you can anchor — anchor what matters most.
 					'''
 			}
@@ -28,7 +28,7 @@ Mods: {
 					Marked tiles are cleared to empty space after every world regeneration.
 					Erasure happens before anchored tiles are restored, so anchors always win.
 					Right-click in your inventory to erase all marked tiles immediately.
-					Hold any world tool to see anchors, erasures, and structure zones highlighted in the world.
+					Hold any world tool to see anchors, erasures, structure zones, and Biome Dowser zones highlighted in the world.
 					The erasure limit is much higher than the anchor limit.
 					'''
 			}
@@ -44,8 +44,24 @@ Mods: {
 					Small gaps beneath a restored structure are bridged, but floating islands stay floating.
 					Zones on different anchors cannot overlap — each tile belongs to one zone only.
 					Structure zones cannot overlap individually anchored tiles.
-					Hold any world tool to see anchors, erasures, and structure zones highlighted in the world.
+					Hold any world tool to see anchors, erasures, structure zones, and Biome Dowser zones highlighted in the world.
 					Shift-click inside a structure zone to remove it.
+					'''
+			}
+
+			BiomeDowser: {
+				DisplayName: Biome Dowser
+				Tooltip:
+					'''
+					Click and drag to define a biome-aware pylon relocation zone.
+					Each zone must fully contain exactly one vanilla pylon.
+					Only tiles connected to that pylon inside the selected area are saved and moved.
+					Right-click while holding to cycle between surface, underground, and floating preferences.
+					Only compatible pylons can use each preference, and unsupported modes fall back automatically.
+					On regen, the saved structure is rebuilt in a biome where that pylon can function.
+					Biome Dowser zones cannot overlap structure zones or individually anchored tiles.
+					Hold any world tool to see anchors, erasures, structure zones, and Biome Dowser zones highlighted in the world.
+					Shift-click inside a Biome Dowser zone to remove it.
 					'''
 			}
 		}
@@ -65,6 +81,11 @@ Items: {
 
 	RealityEraser: {
 		DisplayName: Reality Eraser
+		Tooltip: ""
+	}
+
+	BiomeDowser: {
+		DisplayName: Biome Dowser
 		Tooltip: ""
 	}
 }

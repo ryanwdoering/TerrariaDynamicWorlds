@@ -444,7 +444,7 @@ namespace DynamicWorlds
                     { OverrideColor = Color.LightBlue });
 
             tooltips.Add(new TooltipLine(Mod, "EraserOverlayHint",
-                "Hold any world tool to see anchors, erasures, and structure zones.")
+                "Hold any world tool to see anchors, erasures, structure zones, and Biome Dowser zones.")
                 { OverrideColor = Color.LightSkyBlue });
         }
     }

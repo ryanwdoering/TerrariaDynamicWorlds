@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Terraria;
@@ -34,7 +35,11 @@ namespace DynamicWorlds
 
     public static class SingleplayerRegenHelper
     {
-        public static void RegenerateWorldWithProgress(string seedOverride = null)
+        public static void RegenerateWorldWithProgress(
+            string seedOverride = null,
+            int cycleIndex = 1,
+            int cycleCount = 1,
+            string snapshotFolderPath = null)
         {
             if (DynamicWorldRegenSystem.IsBusy)
             {
@@ -54,15 +59,55 @@ namespace DynamicWorlds
                 return;
             }
 
-            PendingRegenContext pending = CreatePendingRegenContext(seedOverride);
+            cycleCount = Math.Max(1, cycleCount);
+            cycleIndex = Utils.Clamp(cycleIndex, 1, cycleCount);
+
+            PendingRegenContext pending = CreatePendingRegenContext(seedOverride, cycleIndex, cycleCount, snapshotFolderPath);
             if (pending == null)
                 return;
 
-            Main.NewText("Saving current world and opening the regeneration screen...", 180, 220, 255);
+            if (cycleCount > 1)
+            {
+                if (cycleIndex == 1)
+                {
+                    Main.NewText(
+                        $"Saving current world and opening regen cycle {cycleIndex}/{cycleCount}...",
+                        180,
+                        220,
+                        255);
+                    Main.NewText(
+                        $"Queued {cycleCount} full regeneration cycle{(cycleCount == 1 ? "" : "s")} in a row.",
+                        150,
+                        210,
+                        255);
+                }
+                else
+                {
+                    Main.NewText($"Starting regen cycle {cycleIndex}/{cycleCount}...", 180, 220, 255);
+                }
+
+                if (cycleIndex == 1 && !string.IsNullOrWhiteSpace(pending.SnapshotFolderPath))
+                {
+                    Main.NewText(
+                        $"Cycle screenshots will be saved in {Path.GetFileName(pending.SnapshotFolderPath)}.",
+                        180,
+                        255,
+                        180);
+                }
+            }
+            else
+            {
+                Main.NewText("Saving current world and opening the regeneration screen...", 180, 220, 255);
+            }
+
             DynamicWorldRegenSystem.QueueRegen(pending);
         }
 
-        internal static PendingRegenContext CreatePendingRegenContext(string seedOverride)
+        internal static PendingRegenContext CreatePendingRegenContext(
+            string seedOverride,
+            int cycleIndex = 1,
+            int cycleCount = 1,
+            string snapshotFolderPath = null)
         {
             var mod = ModContent.GetInstance<DynamicWorlds>();
             mod.Logger.Info("=== WORLD REGENERATION STARTED ===");
@@ -73,11 +118,16 @@ namespace DynamicWorlds
 
             AnchoredTileSystem.RefreshAllChestSnapshots();
             StructureAnchorSystem.RefreshAllChestSnapshots();
+            BiomeDowserSystem.RefreshAllChestSnapshots();
 
             Player player = Main.LocalPlayer;
             int newSeed = ResolveNewSeed(seedOverride, out string seedLabel);
+            string resolvedSnapshotFolderPath = ResolveOrCreateMultiRegenSnapshotFolder(snapshotFolderPath, cycleIndex, cycleCount);
 
-            mod.Logger.Info($"Queued menu regen with seed {newSeed} and {AnchoredTileSystem.AnchoredTiles.Count} anchored tiles.");
+            mod.Logger.Info(
+                $"Queued menu regen cycle {cycleIndex}/{cycleCount} with seed {newSeed} and {AnchoredTileSystem.AnchoredTiles.Count} anchored tiles.");
+            if (!string.IsNullOrWhiteSpace(resolvedSnapshotFolderPath))
+                mod.Logger.Info($"Multiregen cycle screenshots will be saved to: {resolvedSnapshotFolderPath}");
 
             return new PendingRegenContext
             {
@@ -90,6 +140,11 @@ namespace DynamicWorlds
                 AnchoredChests = CloneAnchoredChests(),
                 ErasedTiles = new HashSet<Point16>(ErasedTileSystem.ErasedTiles),
                 BuildingZones = CloneBuildingZones(),
+                BiomeDowserZones = CloneBiomeDowserZones(),
+                CycleIndex = cycleIndex,
+                CycleCount = cycleCount,
+                SeedOverride = seedOverride,
+                SnapshotFolderPath = resolvedSnapshotFolderPath,
             };
         }
 
@@ -106,13 +161,15 @@ namespace DynamicWorlds
             GenerationProgress progress = pending.Progress;
             if (progress != null)
             {
-                progress.TotalWeight += 5.75d;
+                progress.TotalWeight += 7d;
                 WorldGenerator.CurrentGenerationProgress = progress;
             }
 
             RunProgressStep(progress, "Restoring world progression...", 1d, () =>
             {
-                WorldProgressUtil.Apply(pending.Snapshot);
+                WorldProgressUtil.Apply(
+                    pending.Snapshot,
+                    ModContent.GetInstance<DynamicWorldsConfig>().PreserveEvilType);
             });
 
             RunProgressStep(progress, "Applying world settings...", 0.5d, () =>
@@ -128,6 +185,11 @@ namespace DynamicWorlds
             RunProgressStep(progress, "Restoring structure zones...", 1.25d, () =>
             {
                 StructureAnchorSystem.RestoreAllZones(announce: false);
+            });
+
+            RunProgressStep(progress, "Relocating biome dowser zones...", 1.25d, () =>
+            {
+                BiomeDowserSystem.RestoreAllZones(announce: false);
             });
 
             RunProgressStep(progress, "Restoring anchored tiles...", 1.25d, () =>
@@ -178,6 +240,13 @@ namespace DynamicWorlds
                 downedPlantera = source.downedPlantera,
                 downedGolem = source.downedGolem,
                 downedFishron = source.downedFishron,
+                downedQueenSlime = source.downedQueenSlime,
+                downedEmpressOfLight = source.downedEmpressOfLight,
+                downedAncientCultist = source.downedAncientCultist,
+                downedTowerSolar = source.downedTowerSolar,
+                downedTowerVortex = source.downedTowerVortex,
+                downedTowerNebula = source.downedTowerNebula,
+                downedTowerStardust = source.downedTowerStardust,
                 downedMoonLord = source.downedMoonLord,
                 downedGoblins = source.downedGoblins,
                 downedFrostLegion = source.downedFrostLegion,
@@ -188,6 +257,7 @@ namespace DynamicWorlds
                 downedFrostMoonIceQueen = source.downedFrostMoonIceQueen,
                 downedFrostMoonSantank = source.downedFrostMoonSantank,
                 downedFrostMoonTree = source.downedFrostMoonTree,
+                downedClown = source.downedClown,
                 copperTier = source.copperTier,
                 ironTier = source.ironTier,
                 silverTier = source.silverTier,
@@ -195,6 +265,24 @@ namespace DynamicWorlds
                 cobaltTier = source.cobaltTier,
                 mythrilTier = source.mythrilTier,
                 adamantiteTier = source.adamantiteTier,
+                combatBookWasUsed = source.combatBookWasUsed,
+                combatBookVolumeTwoWasUsed = source.combatBookVolumeTwoWasUsed,
+                shadowOrbSmashed = source.shadowOrbSmashed,
+                shadowOrbCount = source.shadowOrbCount,
+                spawnMeteor = source.spawnMeteor,
+                altarCount = source.altarCount,
+                meteoriteTileCount = source.meteoriteTileCount,
+                lunarApocalypseIsUp = source.lunarApocalypseIsUp,
+                towerActiveSolar = source.towerActiveSolar,
+                towerActiveVortex = source.towerActiveVortex,
+                towerActiveNebula = source.towerActiveNebula,
+                towerActiveStardust = source.towerActiveStardust,
+                shieldStrengthTowerSolar = source.shieldStrengthTowerSolar,
+                shieldStrengthTowerVortex = source.shieldStrengthTowerVortex,
+                shieldStrengthTowerNebula = source.shieldStrengthTowerNebula,
+                shieldStrengthTowerStardust = source.shieldStrengthTowerStardust,
+                moonLordCountdown = source.moonLordCountdown,
+                maxMoonLordCountdown = source.maxMoonLordCountdown,
                 collectedNpcTypes = source.collectedNpcTypes != null ? new List<int>(source.collectedNpcTypes) : new List<int>(),
                 npcPositions = source.npcPositions != null
                     ? new List<(int type, float x, float y, string displayName, string species)>(source.npcPositions)
@@ -202,6 +290,7 @@ namespace DynamicWorlds
                 npcHousing = source.npcHousing != null
                     ? new List<(int type, int homeX, int homeY)>(source.npcHousing)
                     : new List<(int type, int homeX, int homeY)>(),
+                calamity = source.calamity?.Clone(),
             };
         }
 
@@ -239,6 +328,15 @@ namespace DynamicWorlds
             return clone;
         }
 
+        private static Dictionary<int, BiomeDowserZone> CloneBiomeDowserZones()
+        {
+            var clone = new Dictionary<int, BiomeDowserZone>();
+            foreach (var kv in BiomeDowserSystem.Zones)
+                clone[kv.Key] = BiomeDowserZone.FromTag(kv.Value.ToTag());
+
+            return clone;
+        }
+
         private static int ResolveNewSeed(string seedOverride, out string seedLabel)
         {
             var config = ModContent.GetInstance<DynamicWorldsConfig>();
@@ -272,6 +370,58 @@ namespace DynamicWorlds
             return randomSeed;
         }
 
+        private static string ResolveOrCreateMultiRegenSnapshotFolder(string snapshotFolderPath, int cycleIndex, int cycleCount)
+        {
+            if (cycleCount <= 1)
+                return null;
+
+            if (!string.IsNullOrWhiteSpace(snapshotFolderPath))
+            {
+                Directory.CreateDirectory(snapshotFolderPath);
+                return snapshotFolderPath;
+            }
+
+            if (cycleIndex != 1)
+                return null;
+
+            try
+            {
+                string baseFolder = Path.Combine(Main.SavePath, "DynamicWorlds", "MultiregenSnapshots");
+                Directory.CreateDirectory(baseFolder);
+
+                string worldName = SanitizeFileNamePart(string.IsNullOrWhiteSpace(Main.worldName) ? "World" : Main.worldName);
+                string folderName = $"{worldName}_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}";
+                string folderPath = Path.Combine(baseFolder, folderName);
+                Directory.CreateDirectory(folderPath);
+                return folderPath;
+            }
+            catch (Exception ex)
+            {
+                ModContent.GetInstance<DynamicWorlds>().Logger.Warn("[Regen] Failed to create multiregen screenshot folder.", ex);
+                Main.NewText("Could not create the multiregen screenshot folder. Repeating regen will continue without snapshots.", 255, 200, 100);
+                return null;
+            }
+        }
+
+        private static string SanitizeFileNamePart(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "World";
+
+            char[] chars = value.Trim().ToCharArray();
+            for (int i = 0; i < chars.Length; i++)
+            {
+                if (Array.IndexOf(Path.GetInvalidFileNameChars(), chars[i]) >= 0 || char.IsWhiteSpace(chars[i]))
+                    chars[i] = '_';
+            }
+
+            string sanitized = new string(chars).Trim('_');
+            if (string.IsNullOrWhiteSpace(sanitized))
+                sanitized = "World";
+
+            return sanitized.Length > 48 ? sanitized.Substring(0, 48) : sanitized;
+        }
+
         private static void CopyPendingDataToLiveSystems(PendingRegenContext pending)
         {
             AnchoredTileSystem.AnchoredTiles.Clear();
@@ -290,6 +440,11 @@ namespace DynamicWorlds
             foreach (var kv in pending.BuildingZones)
                 StructureAnchorSystem.Zones[kv.Key] = kv.Value;
             StructureAnchorSystem.RecalculateNextId();
+
+            BiomeDowserSystem.Zones.Clear();
+            foreach (var kv in pending.BiomeDowserZones)
+                BiomeDowserSystem.Zones[kv.Key] = kv.Value;
+            BiomeDowserSystem.RecalculateNextId();
         }
 
         private static RegenExecutionResult DeterminePlayerPlacement(PendingRegenContext pending)
@@ -309,6 +464,8 @@ namespace DynamicWorlds
 
             if (StructureAnchorSystem.TryTranslateSavedPoint(savedSpawn, out Point16 translatedSpawn))
                 effectiveSpawn = translatedSpawn;
+            else if (BiomeDowserSystem.TryTranslateSavedPoint(savedSpawn, out Point16 translatedDowserSpawn))
+                effectiveSpawn = translatedDowserSpawn;
 
             if (effectiveSpawn.X >= 0 && effectiveSpawn.Y >= 0 && Player.CheckSpawn(effectiveSpawn.X, effectiveSpawn.Y))
             {
@@ -353,25 +510,36 @@ namespace DynamicWorlds
                 Vector2 spawnPos = new Vector2(Main.spawnTileX * 16, Main.spawnTileY * 16 - 48);
                 string displayName = "";
                 bool restoredHousing = TryResolvePreservedHousing(before, npcType, out Point16 resolvedHome);
-                
-                if (before.npcPositions != null)
-                {
-                    var posData = before.npcPositions.FirstOrDefault(p => p.type == npcType);
-                    if (posData != default)
-                    {
-                        spawnPos = FindSafeNPCSpawnLocation((int)(posData.x / 16), (int)(posData.y / 16));
-                        displayName = posData.displayName;
-                    }
-                }
-
-                if (restoredHousing)
-                    spawnPos = FindSafeNPCSpawnLocation(resolvedHome.X, Math.Max(10, resolvedHome.Y - 3));
 
                 if (createdNpc)
                     Main.npc[npcSlot] = new NPC();
 
                 Main.npc[npcSlot].SetDefaults(npcType);
                 Main.npc[npcSlot].whoAmI = npcSlot;
+
+                if (before.npcPositions != null)
+                {
+                    var posData = before.npcPositions.FirstOrDefault(p => p.type == npcType);
+                    if (posData != default)
+                    {
+                        int targetCenterTileX = (int)Math.Floor((posData.x + (Main.npc[npcSlot].width * 0.5f)) / 16f);
+                        int targetGroundTileY = (int)Math.Floor((posData.y + Main.npc[npcSlot].height) / 16f);
+                        spawnPos = FindSafeNPCSpawnLocation(
+                            Main.npc[npcSlot],
+                            targetCenterTileX,
+                            targetGroundTileY,
+                            requireWallBackdrop: false);
+                        displayName = posData.displayName;
+                    }
+                }
+
+                if (restoredHousing)
+                    spawnPos = FindSafeNPCSpawnLocation(
+                        Main.npc[npcSlot],
+                        resolvedHome.X,
+                        resolvedHome.Y,
+                        requireWallBackdrop: true);
+
                 Main.npc[npcSlot].position = spawnPos;
                 Main.npc[npcSlot].active = true;
 
@@ -448,6 +616,9 @@ namespace DynamicWorlds
             if (StructureAnchorSystem.TryTranslateSavedPoint(savedHome, out Point16 translatedZoneHome))
                 candidateHomes.Add(translatedZoneHome);
 
+            if (BiomeDowserSystem.TryTranslateSavedPoint(savedHome, out Point16 translatedDowserHome))
+                candidateHomes.Add(translatedDowserHome);
+
             if (IsAnchoredHousingCandidate(savedHome))
                 candidateHomes.Add(savedHome);
 
@@ -500,80 +671,160 @@ namespace DynamicWorlds
         }
 
         /// <summary>
-        /// Find a safe spawn location for an NPC near the target position.
-        /// Checks if the position is inside tiles and finds an alternative if needed.
-        /// Returns world pixel coordinates (multiply tile position by 16).
+        /// Find a safe spawn location for an NPC near the target home/target tile.
+        /// The returned vector is the NPC's top-left world position.
         /// </summary>
-        private static Vector2 FindSafeNPCSpawnLocation(int targetTileX, int targetTileY)
+        private static Vector2 FindSafeNPCSpawnLocation(NPC npc, int targetTileX, int targetTileY, bool requireWallBackdrop)
         {
-            // Look for a tile that is:
-            // 1. Open space (no solid tile blocking the NPC)
-            // 2. Has solid ground below (at least 1 tile of solid material)
-            
-            // First check the target position and immediate area
-            for (int searchY = targetTileY; searchY < targetTileY + 20; searchY++)
+            if (TryFindStandingSpotNear(npc.width, npc.height, targetTileX, targetTileY, 4, 3, requireWallBackdrop, out Vector2 closeSpot))
+                return closeSpot;
+
+            if (TryFindStandingSpotNear(npc.width, npc.height, targetTileX, targetTileY, 8, 5, requireWallBackdrop, out Vector2 mediumSpot))
+                return mediumSpot;
+
+            if (TryFindStandingSpotNear(npc.width, npc.height, targetTileX, targetTileY, 14, 8, requireWallBackdrop, out Vector2 farSpot))
+                return farSpot;
+
+            if (requireWallBackdrop)
             {
-                if (!WorldGen.InWorld(targetTileX, searchY, 1))
-                    continue;
+                if (TryFindStandingSpotNear(npc.width, npc.height, targetTileX, targetTileY, 20, 10, requireWallBackdrop: false, out Vector2 emergencyIndoorFallback))
+                    return emergencyIndoorFallback;
+            }
 
-                Tile currentTile = Framing.GetTileSafely(targetTileX, searchY);
-                
-                // Skip if this tile is solid (NPC can't be here)
-                if (currentTile.HasTile && Main.tileSolid[currentTile.TileType])
-                    continue;
+            return new Vector2(Main.spawnTileX * 16f, Main.spawnTileY * 16f - npc.height);
+        }
 
-                // Check if there's solid ground below this position
-                if (searchY + 1 < Main.maxTilesY)
+        private static bool TryFindStandingSpotNear(
+            int npcWidthPixels,
+            int npcHeightPixels,
+            int targetTileX,
+            int targetTileY,
+            int horizontalRadius,
+            int verticalRadius,
+            bool requireWallBackdrop,
+            out Vector2 worldPosition)
+        {
+            for (int radius = 0; radius <= Math.Max(horizontalRadius, verticalRadius); radius++)
+            {
+                int minX = Math.Max(-radius, -horizontalRadius);
+                int maxX = Math.Min(radius, horizontalRadius);
+                int minY = Math.Max(-radius, -verticalRadius);
+                int maxY = Math.Min(radius, verticalRadius);
+
+                for (int dy = minY; dy <= maxY; dy++)
                 {
-                    Tile belowTile = Framing.GetTileSafely(targetTileX, searchY + 1);
-                    if (belowTile.HasTile && Main.tileSolid[belowTile.TileType])
+                    for (int dx = minX; dx <= maxX; dx++)
                     {
-                        // Found a good spot: open space with solid ground below
-                        return new Vector2(targetTileX * 16, searchY * 16);
+                        if (Math.Abs(dx) != radius && Math.Abs(dy) != radius)
+                            continue;
+
+                        int groundTileX = targetTileX + dx;
+                        int groundTileY = targetTileY + dy;
+                        if (!TryGetStandingWorldPosition(
+                                groundTileX,
+                                groundTileY,
+                                npcWidthPixels,
+                                npcHeightPixels,
+                                requireWallBackdrop,
+                                out worldPosition))
+                            continue;
+
+                        return true;
                     }
                 }
             }
 
-            // If we couldn't find a good spot near target, search in expanding squares
-            int searchRadius = 1;
-            while (searchRadius <= 50)
+            worldPosition = Vector2.Zero;
+            return false;
+        }
+
+        private static bool TryGetStandingWorldPosition(
+            int groundTileX,
+            int groundTileY,
+            int npcWidthPixels,
+            int npcHeightPixels,
+            bool requireWallBackdrop,
+            out Vector2 worldPosition)
+        {
+            float centerWorldX = groundTileX * 16f + 8f;
+            float worldX = centerWorldX - (npcWidthPixels * 0.5f);
+            float worldY = groundTileY * 16f - npcHeightPixels;
+
+            int leftX = (int)Math.Floor(worldX / 16f);
+            int rightX = (int)Math.Floor((worldX + npcWidthPixels - 1) / 16f);
+            int topY = (int)Math.Floor(worldY / 16f);
+
+            if (!WorldGen.InWorld(leftX, groundTileY, 5) || !WorldGen.InWorld(rightX, groundTileY, 5))
             {
-                for (int dx = -searchRadius; dx <= searchRadius; dx++)
-                {
-                    for (int dy = -searchRadius; dy <= searchRadius; dy++)
-                    {
-                        // Only check the outer ring of this radius
-                        if (Math.Abs(dx) != searchRadius && Math.Abs(dy) != searchRadius)
-                            continue;
-
-                        int checkX = targetTileX + dx;
-                        int checkY = targetTileY + dy;
-
-                        if (!WorldGen.InWorld(checkX, checkY, 1))
-                            continue;
-
-                        Tile checkTile = Framing.GetTileSafely(checkX, checkY);
-                        
-                        // Skip if this tile is solid
-                        if (checkTile.HasTile && Main.tileSolid[checkTile.TileType])
-                            continue;
-
-                        // Check for solid ground below
-                        if (checkY + 1 < Main.maxTilesY)
-                        {
-                            Tile belowTile = Framing.GetTileSafely(checkX, checkY + 1);
-                            if (belowTile.HasTile && Main.tileSolid[belowTile.TileType])
-                            {
-                                return new Vector2(checkX * 16, checkY * 16);
-                            }
-                        }
-                    }
-                }
-                searchRadius++;
+                worldPosition = Vector2.Zero;
+                return false;
             }
 
-            // Fallback: spawn at world spawn if no safe location found
-            return new Vector2(Main.spawnTileX * 16, Main.spawnTileY * 16 - 48);
+            for (int x = leftX; x <= rightX; x++)
+            {
+                Tile floorTile = Framing.GetTileSafely(x, groundTileY);
+                bool floorOkay = floorTile.HasTile && (Main.tileSolid[floorTile.TileType] || TileID.Sets.Platforms[floorTile.TileType]);
+                if (!floorOkay)
+                {
+                    worldPosition = Vector2.Zero;
+                    return false;
+                }
+            }
+
+            for (int x = leftX; x <= rightX; x++)
+            {
+                for (int y = topY; y < groundTileY; y++)
+                {
+                    if (!WorldGen.InWorld(x, y, 5))
+                    {
+                        worldPosition = Vector2.Zero;
+                        return false;
+                    }
+
+                    Tile tile = Framing.GetTileSafely(x, y);
+                    if (tile.HasTile && Main.tileSolid[tile.TileType] && !tile.IsActuated)
+                    {
+                        worldPosition = Vector2.Zero;
+                        return false;
+                    }
+                }
+            }
+
+            if (requireWallBackdrop && !HasEnoughHousingBackdrop(leftX, rightX, topY, groundTileY - 1))
+            {
+                worldPosition = Vector2.Zero;
+                return false;
+            }
+
+            worldPosition = new Vector2(worldX, worldY);
+            return true;
+        }
+
+        private static bool HasEnoughHousingBackdrop(int leftX, int rightX, int topY, int bottomY)
+        {
+            int width = rightX - leftX + 1;
+            int columnsWithWalls = 0;
+
+            for (int x = leftX; x <= rightX; x++)
+            {
+                bool columnHasWall = false;
+                for (int y = topY; y <= bottomY; y++)
+                {
+                    if (!WorldGen.InWorld(x, y, 5))
+                        return false;
+
+                    if (Framing.GetTileSafely(x, y).WallType > 0)
+                    {
+                        columnHasWall = true;
+                        break;
+                    }
+                }
+
+                if (columnHasWall)
+                    columnsWithWalls++;
+            }
+
+            return columnsWithWalls >= Math.Max(1, (width / 2) + 1);
         }
 
         /// <summary>
@@ -644,6 +895,33 @@ namespace DynamicWorlds
             SingleplayerRegenHelper.RegenerateWorldWithProgress(seed);
         }
     }
+
+    public class MultiRegenWorldCommand : ModCommand
+    {
+        public override CommandType Type => CommandType.Chat;
+        public override string Command => "multiregen";
+        public override string Usage => "/multiregen <count> [seed]";
+        public override string Description =>
+            "Runs the full loading-screen world regen flow multiple times in a row, reloading the player into the world between cycles.";
+
+        public override void Action(CommandCaller caller, string input, string[] args)
+        {
+            if (args.Length == 0)
+            {
+                Main.NewText("Usage: /multiregen <count> [seed]", 255, 230, 150);
+                return;
+            }
+
+            if (!int.TryParse(args[0], out int cycleCount) || cycleCount <= 0)
+            {
+                Main.NewText("Regen count must be a positive whole number.", 255, 80, 80);
+                return;
+            }
+
+            string seed = args.Length > 1 ? args[1] : null;
+            SingleplayerRegenHelper.RegenerateWorldWithProgress(seed, 1, cycleCount);
+        }
+    }
     
     // /hardmode and /down commands exactly as we had them before:
     // (no changes needed to integrate with world-load printing / saving)
@@ -679,15 +957,21 @@ namespace DynamicWorlds
                     setHardmode = false;
             }
 
-            Main.hardMode = setHardmode;
-
             if (setHardmode)
             {
-                WorldProgressUtil.ChooseHardmodeOresVanillaStyle();
-                Main.NewText("Hardmode ENABLED for this world.", 150, 255, 150);
+                if (Main.hardMode)
+                {
+                    Main.NewText("Hardmode is already enabled for this world.", 255, 220, 120);
+                }
+                else
+                {
+                    WorldGen.StartHardmode();
+                    Main.NewText("Hardmode ENABLED for this world using the vanilla transition.", 150, 255, 150);
+                }
             }
             else
             {
+                Main.hardMode = false;
                 Main.NewText("Hardmode DISABLED for this world.", 255, 150, 150);
             }
 
@@ -838,14 +1122,57 @@ namespace DynamicWorlds
         }
     }
 
-    // /dwinfo — prints a summary of all saved anchored tiles, erased tiles, and structure zones.
+    public class RevealMapCommand : ModCommand
+    {
+        public override CommandType Type => CommandType.Chat;
+        public override string Command => "revealmap";
+        public override string Usage => "/revealmap";
+        public override string Description =>
+            "Reveals the entire world map for your current character.";
+
+        public override void Action(CommandCaller caller, string input, string[] args)
+        {
+            var config = ModContent.GetInstance<DynamicWorldsConfig>();
+            if (!config.AllowCheats)
+            {
+                Main.NewText("Cheats are disabled. Enable 'Allow Cheats' in the mod config.", 255, 80, 80);
+                return;
+            }
+
+            if (Main.Map == null)
+            {
+                Main.NewText("The world map is not ready yet.", 255, 80, 80);
+                return;
+            }
+
+            Main.NewText("Revealing the full map. This may take a moment...", 180, 220, 255);
+
+            const int blackEdgeWidth = 40;
+            int minX = Math.Max(0, blackEdgeWidth);
+            int maxX = Math.Max(minX, Main.maxTilesX - blackEdgeWidth);
+            int minY = Math.Max(0, blackEdgeWidth);
+            int maxY = Math.Max(minY, Main.maxTilesY - blackEdgeWidth);
+
+            for (int x = minX; x < maxX; x++)
+            {
+                for (int y = minY; y < maxY; y++)
+                    Main.Map.Update(x, y, byte.MaxValue);
+            }
+
+            Main.refreshMap = true;
+            Main.updateMap = true;
+            Main.NewText("Revealed the full map for this character.", 150, 255, 150);
+        }
+    }
+
+    // /dwinfo — prints a summary of all saved anchored tiles, erased tiles, structure zones, and Biome Dowser zones.
     public class DwInfoCommand : ModCommand
     {
         public override CommandType Type => CommandType.Chat;
         public override string Command => "dwinfo";
         public override string Usage => "/dwinfo";
         public override string Description =>
-            "Shows a summary of all anchored tiles, erased tiles, and structure zones saved for this world.";
+            "Shows a summary of all anchored tiles, erased tiles, structure zones, and Biome Dowser zones saved for this world.";
 
         public override void Action(CommandCaller caller, string input, string[] args)
         {
@@ -900,7 +1227,19 @@ namespace DynamicWorlds
                     100, 220, 140);
             }
 
-            if (anchorCount == 0 && eraseCount == 0 && zoneCount == 0)
+            int dowserZoneCount = BiomeDowserSystem.Zones.Count;
+            Main.NewText($"[Biome Dowser Zones] {dowserZoneCount} zone{(dowserZoneCount == 1 ? "" : "s")}", 255, 215, 120);
+
+            foreach (var kv in BiomeDowserSystem.Zones)
+            {
+                var z = kv.Value;
+                Main.NewText(
+                    $"  Zone #{z.Id}: ({z.TopLeft.X},{z.TopLeft.Y}) → ({z.BottomRight.X},{z.BottomRight.Y})  " +
+                    $"{z.Width}×{z.Height}  {z.Zone.Tiles.Count} tiles  pylon={z.PylonType}  mode={BiomeDowserPlacementHelper.GetLabel(z.PlacementMode)}",
+                    255, 200, 120);
+            }
+
+            if (anchorCount == 0 && eraseCount == 0 && zoneCount == 0 && dowserZoneCount == 0)
                 Main.NewText("No Dynamic Worlds data saved for this world.", 180, 180, 180);
         }
     }

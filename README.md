@@ -11,19 +11,25 @@ The mod snapshots your world state, saves the important things you marked, runs 
 - Preserves exact tiles with `Reality Anchor`.
 - Forces empty space with `Reality Eraser`.
 - Preserves full builds with `Structure Anchor`.
+- **NEW:** Automatically relocates preserved vanilla pylons to matching biomes with `Biome Dowser`.
 - Restores chest and dresser contents inside anchored tiles and structure zones.
 - Reassigns town NPC housing when their homes survived through anchors or structure zones.
 - Repairs preserved vanilla pylons so they register correctly again after regen.
 - Automatically reloads the regenerated world and places the player at a valid spawn.
 - Runs an automatic regen scheduler in single player, with a configurable interval in in-game days.
+- **NEW:** Advanced configuration system to control regen behavior (seed randomization, evil type preservation, cheat gating).
+- **NEW:** Calamity Mod progression tracking and restoration support.
+- **NEW:** Per-tile anchor system now supports modded tiles, walls, and container items via tModLoader serialization.
+- **NEW:** Unified world tool overlay—hold any tool to see all anchors, erasures, and structure zones together.
+- **NEW:** Building zone command suite (`/dwzone`, `/clearzones`) with structure zone management.
 
 ## Important Current Limits
 
 - Single-player only. Multiplayer is not supported.
-- The dedicated `Pylon Anchor` feature is currently parked and disabled in source.
-- Vanilla pylons are repaired after regen if you preserved them, but the mod does not currently move a pylon to a matching biome automatically.
+- Vanilla pylons are relocated and repaired by `Biome Dowser` if preserved in a pylon zone, but relocation depends on finding a valid matching biome at the destination.
 - `Preserve Dungeon Side` and `Preserve Biome Features` exist in config as planned options, but they are not implemented yet.
 - Scheduled regen can now be enabled or disabled in config, and its day interval can be customized.
+- Calamity Mod compatibility requires Calamity to be installed; the mod does not automatically detect other major content mods yet.
 
 ## Quick Start
 
@@ -97,7 +103,46 @@ These are the main runtime systems in the mod and what they are responsible for.
 | `AnchoredTileSystem` | `DynamicWorlds/AnchoredTiles.cs` | Stores anchored tiles, captures container contents, enforces anchor limits, and restores anchored data after regen. |
 | `ErasedTileSystem` | `DynamicWorlds/ErasedTiles.cs` | Stores tiles marked for erasure and clears them before anchored and zoned content is restored. |
 | `StructureAnchorSystem` | `DynamicWorlds/StructureAnchor.cs` | Stores structure zones, preserves full builds, translates them vertically to new ground, and keeps zone metadata up to date. |
+| `BiomeDowserSystem` | `DynamicWorlds/BiomeDowser.cs` | **NEW:** Manages pylon zones, detects biome types, and intelligently relocates preserved pylon structures to matching biomes during regen. |
 | `PylonRestoreHelper` | `DynamicWorlds/PylonRestoreHelper.cs` | Recreates missing vanilla pylon tile entities after restore and refreshes the vanilla pylon system. |
+| `CalamityCompat` | `DynamicWorlds/CalamityCompat.cs` | **NEW:** Detects Calamity Mod and preserves boss progression, world events, crafting unlocks, and acid rain state across regen. |
+| `WorldToolOverlayHelper` | `DynamicWorlds/WorldToolOverlayHelper.cs` | **NEW:** Unified overlay rendering system for all three world tools. |
+
+## Mod Compatibility
+
+### Calamity Mod Support
+
+Dynamic Worlds now detects and preserves **Calamity Mod** progression across world regenerations:
+
+**Calamity Features Preserved:**
+- All boss defeat flags and progression
+- Difficulty modifiers (Revenge, Death, Armageddon modes)
+- Acid Rain event state and progression
+- Boss Rush mode state
+- Recipe unlocks (Draedon's Arsenal, etc.)
+- Special world conditions (Permafrost, Astral Biome presence)
+- Counters and timers for ongoing events
+
+When Calamity is detected, the mod automatically captures and restores these systems during regeneration, so your progression through Calamity's content is preserved alongside vanilla progression.
+
+### General Modded Content Support
+
+Dynamic Worlds is intentionally designed to be friendly to modded content:
+
+- **Modded Tiles & Walls:** Anchored tiles store tile and wall IDs as `ushort`, so any modded tile or wall can be preserved if the mod is still installed.
+- **Modded Items in Chests:** Container contents are serialized through tModLoader's item system, so modded items in preserved chests and dressers are intended to survive regen.
+- **Modded Town NPCs:** Town NPC roster snapshots include modded NPC type IDs, so modded town NPCs can be respawned if their mod is present.
+- **Tile Entity Extra Data:** Best-effort support for custom tile entity data restoration on anchored tiles.
+
+**Practical Rule:** If the mod that added the item, tile, wall, or NPC is still installed after regen, Dynamic Worlds has a good chance of preserving it.
+
+### Known Compatibility Cautions
+
+Compatibility is weaker for:
+- Mods with custom or unusual tile entities (beyond vanilla chest-like containers)
+- Mods with custom pylon implementations
+- Mods that heavily rewrite worldgen or post-gen placement
+- Major worldgen-overhaul mods that depend on specific generation order
 | `DynamicWorldsPlayer` | `DynamicWorlds/player.cs` | Gifts tools, stores safe player position data, and handles post-regen player entry behavior. |
 | `GuideGlobalNPC` | `DynamicWorlds/GuideDialogue.cs` | Adds a Guide dialogue page that explains the `Reality Anchor`. |
 
@@ -210,6 +255,60 @@ Good use cases:
 - sky builds
 - biome outposts
 
+### Biome Dowser
+
+Use `Biome Dowser` when you want to preserve vanilla pylon structures and have them automatically relocate to matching biomes during regeneration.
+
+How to use it:
+
+- Click and drag to create a pylon zone around a vanilla pylon structure.
+- Right-click the item in your inventory to cycle through placement modes: Surface → Underground → Floating → Surface.
+- Create as many separate pylon zones as you want.
+- Shift-click inside a pylon zone to remove it.
+- Use `/dwzone` and `/clearzones` for command-based zone management.
+
+What it preserves:
+
+- the vanilla pylon and all connected tiles in the zone
+- chest and dresser contents inside the zone
+- the structure's original arrangement
+
+How restoration works:
+
+- The Biome Dowser scans the terrain around the original pylon location for a matching biome.
+- It evaluates placement candidates based on the chosen mode (Surface = ground level, Underground = below surface, Floating = sky placement).
+- It scores candidate locations by how centrally the pylon sits within the detected biome (more central = better stability).
+- The structure is relocated to the best matching location, with the pylon remaining functional.
+- If no valid matching biome is found, the pylon stays at its original location.
+
+Supported pylon types and modes:
+
+| Pylon Type | Surface | Underground | Floating |
+| --- | --- | --- | --- |
+| Surface Purity | ✓ | ✗ | ✓ |
+| Jungle | ✓ | ✓ | ✗ |
+| Hallow | ✓ | ✓ | ✓ |
+| Underground | ✗ | ✓ | ✗ |
+| Desert | ✓ | ✓ | ✗ |
+| Snow | ✓ | ✓ | ✗ |
+| Beach | ✓ | ✗ | ✗ |
+| Glowing Mushroom | ✗ | ✓ | ✗ |
+| Victory | ✓ | ✗ | ✓ |
+
+Rules:
+
+- Pylon zones must contain exactly one vanilla pylon.
+- Pylon zones cannot overlap other structure zones.
+- Pylon zones cannot overlap individually anchored tiles.
+
+Good use cases:
+
+- pylon outposts and towers
+- biome-specific teleport networks
+- sky-island pylon bases
+- underground pylon systems
+- preserving your pylon network across major terrain regenerations
+
 ## Commands
 
 | Command | What it does | Notes |
@@ -251,19 +350,29 @@ Dynamic Worlds currently uses the following server-side config values and planne
 
 ## Pylons
 
-Dynamic Worlds currently supports vanilla pylons in a limited but useful way:
+Dynamic Worlds now fully supports vanilla pylon preservation and relocation through the `Biome Dowser` system:
 
-- If a vanilla pylon is inside an anchored area or structure zone, the tile itself can be preserved.
-- After regen, the mod recreates the missing vanilla pylon tile entity and refreshes Terraria's pylon system.
-- This solves the common "the pylon tile is back but it no longer functions" problem.
+**How Biome Dowser Works:**
+- Create a pylon zone by dragging around a vanilla pylon structure with the Biome Dowser tool.
+- Choose a placement mode for that pylon (Surface, Underground, or Floating) based on where you want it to be able to relocate.
+- During regen, the mod scans for a matching biome and intelligently places the pylon in a good location within that biome.
+- The relocated pylon is re-registered and works immediately after regen.
+- All tiles in the pylon zone (not just the pylon itself) are preserved as a unit.
 
-What it does not currently do:
+**When a Pylon Cannot Relocate:**
+- If no matching biome is found in the new world, the pylon stays at its original location and is still re-registered.
+- If the original location happens to be valid for that pylon type in the new terrain, the pylon can still function there.
 
-- It does not automatically move a pylon to a matching biome.
-- It does not automatically convert a pylon to a different biome type.
-- It does not currently provide special restore support for modded pylons.
+**Practical Benefits:**
+- Run multiple regens without rebuilding your pylon network each time.
+- Keep pylon coverage balanced across different biomes.
+- Preserve sky-island pylon bases that would otherwise settle to the ground.
+- Maintain biome-specific teleport routes and outposts.
 
-So the practical answer is: a preserved vanilla pylon will work after regen if the restored location still satisfies Terraria's normal pylon rules. If the regenerated location is no longer appropriate for that pylon, the mod will not automatically swap it to a better biome right now.
+**Compatibility:**
+- Biome Dowser only works with vanilla pylons.
+- Custom modded pylon implementations are not currently supported.
+- For a full reference on the Biome Dowser system, see `BIOME_DOWSER_DOCUMENTATION.md`.
 
 ## Compatibility
 
@@ -316,9 +425,16 @@ The command also refuses to start if a boss is alive.
 
 ### How does this work with pylons? Will it swap them to the appropriate biome?
 
-Not yet. Today the mod only repairs preserved vanilla pylons so they function again if their tile entity was lost during restore.
+Yes! The `Biome Dowser` system now handles intelligent pylon relocation. Create a pylon zone around your pylon structure, choose a placement mode (Surface/Underground/Floating), and the mod will attempt to relocate it to a matching biome during regen.
 
-It does not currently detect "this snow pylon should move to a snow biome" and it does not swap pylons to a more appropriate biome automatically. A separate `Pylon Anchor` feature was started in source, but it is currently disabled.
+The relocation works by:
+1. Scanning the terrain for a matching biome type around the new world location
+2. Evaluating placement candidates based on your chosen mode
+3. Scoring locations by how central the pylon is within that biome (more central = more stable)
+4. Relocating the entire pylon zone to the best match
+5. Re-registering the pylon so it functions immediately
+
+If no matching biome is found, the pylon stays at its original location and is still re-registered to function. This means your pylon network is preserved across regens and automatically adapts to the new terrain.
 
 ### Does this work with older worlds, including worlds that began in 1.3?
 

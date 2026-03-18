@@ -44,6 +44,13 @@ namespace DynamicWorlds
         public bool downedPlantera;
         public bool downedGolem;
         public bool downedFishron;
+        public bool downedQueenSlime;
+        public bool downedEmpressOfLight;
+        public bool downedAncientCultist;
+        public bool downedTowerSolar;
+        public bool downedTowerVortex;
+        public bool downedTowerNebula;
+        public bool downedTowerStardust;
         public bool downedMoonLord;
 
         // Invasions / seasonal events
@@ -58,6 +65,7 @@ namespace DynamicWorlds
         public bool downedFrostMoonIceQueen;    // Ice Queen
         public bool downedFrostMoonSantank;     // Santa-NK1
         public bool downedFrostMoonTree;        // Everscream
+        public bool downedClown;                // Blood Moon clown unlock
 
         // Ore tiers – these are the ones stored in WorldGen.SavedOreTiers.
         // Pre-hardmode:
@@ -70,6 +78,30 @@ namespace DynamicWorlds
         public int cobaltTier;
         public int mythrilTier;
         public int adamantiteTier;
+
+        // Permanent consumable / world-event progression.
+        public bool combatBookWasUsed;
+        public bool combatBookVolumeTwoWasUsed;
+
+        // World-change markers that need more than just boss flags.
+        public bool shadowOrbSmashed;
+        public int shadowOrbCount;
+        public bool spawnMeteor;
+        public int altarCount;
+        public int meteoriteTileCount;
+
+        // Ongoing Lunar Apocalypse state, used if regen happens mid-event.
+        public bool lunarApocalypseIsUp;
+        public bool towerActiveSolar;
+        public bool towerActiveVortex;
+        public bool towerActiveNebula;
+        public bool towerActiveStardust;
+        public int shieldStrengthTowerSolar;
+        public int shieldStrengthTowerVortex;
+        public int shieldStrengthTowerNebula;
+        public int shieldStrengthTowerStardust;
+        public int moonLordCountdown;
+        public int maxMoonLordCountdown;
 
         // Town NPCs present in the world before regen (by NPC type ID).
         // These will be respawned at spawn after world regeneration.
@@ -85,6 +117,9 @@ namespace DynamicWorlds
         // Stores: (npcType, homeTileX, homeTileY) for housed town NPCs
         // Used to determine which NPCs should be respawned after world regen
         public List<(int type, int homeX, int homeY)> npcHousing = new();
+
+        // Optional soft-dependency snapshot for Calamity world progression.
+        public CalamityProgressSnapshot calamity;
     }
 
     public static class WorldProgressUtil
@@ -146,6 +181,13 @@ namespace DynamicWorlds
                 downedPlantera    = NPC.downedPlantBoss,
                 downedGolem       = NPC.downedGolemBoss,
                 downedFishron     = NPC.downedFishron,
+                downedQueenSlime  = NPC.downedQueenSlime,
+                downedEmpressOfLight = NPC.downedEmpressOfLight,
+                downedAncientCultist = NPC.downedAncientCultist,
+                downedTowerSolar = NPC.downedTowerSolar,
+                downedTowerVortex = NPC.downedTowerVortex,
+                downedTowerNebula = NPC.downedTowerNebula,
+                downedTowerStardust = NPC.downedTowerStardust,
                 downedMoonLord    = NPC.downedMoonlord,
 
                 // invasions / seasonal events
@@ -160,6 +202,7 @@ namespace DynamicWorlds
                 downedFrostMoonIceQueen  = NPC.downedChristmasIceQueen,
                 downedFrostMoonSantank   = NPC.downedChristmasSantank,
                 downedFrostMoonTree      = NPC.downedChristmasTree,
+                downedClown              = NPC.downedClown,
 
                 // Pre-hardmode ore tiers (Copper/Tin, Iron/Lead, Silver/Tungsten, Gold/Platinum)
                 copperTier     = WorldGen.SavedOreTiers.Copper,
@@ -170,7 +213,28 @@ namespace DynamicWorlds
                 // Hardmode ore tiers (Cobalt/Palladium, Mythril/Orichalcum, Adamantite/Titanium)
                 cobaltTier     = WorldGen.SavedOreTiers.Cobalt,
                 mythrilTier    = WorldGen.SavedOreTiers.Mythril,
-                adamantiteTier = WorldGen.SavedOreTiers.Adamantite
+                adamantiteTier = WorldGen.SavedOreTiers.Adamantite,
+
+                combatBookWasUsed = NPC.combatBookWasUsed,
+                combatBookVolumeTwoWasUsed = NPC.combatBookVolumeTwoWasUsed,
+
+                shadowOrbSmashed = WorldGen.shadowOrbSmashed,
+                shadowOrbCount = WorldGen.shadowOrbCount,
+                spawnMeteor = WorldGen.spawnMeteor,
+                altarCount = WorldGen.altarCount,
+                meteoriteTileCount = CountActiveTiles(TileID.Meteorite),
+
+                lunarApocalypseIsUp = NPC.LunarApocalypseIsUp,
+                towerActiveSolar = NPC.TowerActiveSolar,
+                towerActiveVortex = NPC.TowerActiveVortex,
+                towerActiveNebula = NPC.TowerActiveNebula,
+                towerActiveStardust = NPC.TowerActiveStardust,
+                shieldStrengthTowerSolar = NPC.ShieldStrengthTowerSolar,
+                shieldStrengthTowerVortex = NPC.ShieldStrengthTowerVortex,
+                shieldStrengthTowerNebula = NPC.ShieldStrengthTowerNebula,
+                shieldStrengthTowerStardust = NPC.ShieldStrengthTowerStardust,
+                moonLordCountdown = NPC.MoonLordCountdown,
+                maxMoonLordCountdown = NPC.MaxMoonLordCountdown
             };
 
             // Collect all active town NPCs (alive, flagged as townNPC, valid type).
@@ -194,20 +258,32 @@ namespace DynamicWorlds
                 .Select(n => (n.type, n.homeTileX, n.homeTileY))
                 .ToList();
 
+            s.calamity = CalamityCompat.Capture();
+
             return s;
         }
 
         /// <summary>
         /// Re-apply a previously captured snapshot to the current (freshly generated) world.
         /// </summary>
-        public static void Apply(WorldProgressSnapshot s)
+        public static void Apply(WorldProgressSnapshot s, bool preserveEvilType)
         {
             if (s == null)
                 return;
 
+            bool shouldRunVanillaHardmodeTransition = s.hardMode && !Main.hardMode;
+            if (shouldRunVanillaHardmodeTransition)
+            {
+                if (preserveEvilType)
+                    WorldGen.crimson = s.crimson;
+
+                WorldGen.StartHardmode();
+            }
+
             // Core world state
-            Main.hardMode    = s.hardMode;
-            WorldGen.crimson = s.crimson;
+            Main.hardMode = s.hardMode;
+            if (preserveEvilType)
+                WorldGen.crimson = s.crimson;
 
             // World difficulty: match the previous world
             // GameMode: 0 = Classic, 1 = Expert, 2 = Master, 3 = Journey
@@ -230,7 +306,15 @@ namespace DynamicWorlds
             NPC.downedPlantBoss    = s.downedPlantera;
             NPC.downedGolemBoss    = s.downedGolem;
             NPC.downedFishron      = s.downedFishron;
+            NPC.downedQueenSlime   = s.downedQueenSlime;
+            NPC.downedEmpressOfLight = s.downedEmpressOfLight;
+            NPC.downedAncientCultist = s.downedAncientCultist;
+            NPC.downedTowerSolar   = s.downedTowerSolar;
+            NPC.downedTowerVortex  = s.downedTowerVortex;
+            NPC.downedTowerNebula  = s.downedTowerNebula;
+            NPC.downedTowerStardust = s.downedTowerStardust;
             NPC.downedMoonlord     = s.downedMoonLord;
+            NPC.downedMechBossAny  = s.downedMech1 || s.downedMech2 || s.downedMech3;
 
             // Invasion / seasonal flags
             NPC.downedGoblins          = s.downedGoblins;
@@ -244,6 +328,10 @@ namespace DynamicWorlds
             NPC.downedChristmasIceQueen = s.downedFrostMoonIceQueen;
             NPC.downedChristmasSantank  = s.downedFrostMoonSantank;
             NPC.downedChristmasTree     = s.downedFrostMoonTree;
+            NPC.downedClown             = s.downedClown;
+
+            NPC.combatBookWasUsed = s.combatBookWasUsed;
+            NPC.combatBookVolumeTwoWasUsed = s.combatBookVolumeTwoWasUsed;
 
             // Pre-hardmode ore tiers – only overwrite if they look valid (> 0).
             if (s.copperTier     > 0) WorldGen.SavedOreTiers.Copper      = s.copperTier;
@@ -265,6 +353,16 @@ namespace DynamicWorlds
             {
                 ChooseHardmodeOresVanillaStyle();
             }
+
+            RestoreHardmodeOreBlessingsIfNeeded(s);
+
+            WorldGen.shadowOrbSmashed = s.shadowOrbSmashed;
+            WorldGen.shadowOrbCount = Math.Max(0, s.shadowOrbCount);
+            WorldGen.spawnMeteor = s.spawnMeteor;
+            RestoreMeteorWorldChangeIfNeeded(s);
+            RestoreLunarApocalypseIfNeeded(s);
+            WorldGen.altarCount = Math.Max(0, s.altarCount);
+            CalamityCompat.Apply(s.calamity);
 
             // NOTE: NPC respawning is now handled separately by RespawnTownNPCsAtOriginalPositions()
             // in regenworldcommand.cs, which only respawns housed NPCs and respects housing assignments.
@@ -312,6 +410,173 @@ namespace DynamicWorlds
                         ? TileID.Adamantite
                         : TileID.Titanium;
             }
+        }
+
+        private static void RestoreMeteorWorldChangeIfNeeded(WorldProgressSnapshot s)
+        {
+            bool oldWorldHadMeteorProgress = s.spawnMeteor || s.meteoriteTileCount > 0;
+            if (!oldWorldHadMeteorProgress)
+                return;
+
+            if (CountActiveTiles(TileID.Meteorite, 1) > 0)
+                return;
+
+            WorldGen.spawnMeteor = true;
+            WorldGen.dropMeteor();
+        }
+
+        private static void RestoreHardmodeOreBlessingsIfNeeded(WorldProgressSnapshot s)
+        {
+            if (!s.hardMode || s.altarCount <= 0)
+                return;
+
+            for (int altarIndex = 0; altarIndex < s.altarCount; altarIndex++)
+            {
+                int oreTileId = ResolveBlessedOreTileId(s, altarIndex % 3);
+                if (oreTileId <= 0)
+                    continue;
+
+                BlessWorldWithOreFromAltar(altarIndex, oreTileId);
+            }
+        }
+
+        private static int ResolveBlessedOreTileId(WorldProgressSnapshot s, int altarCycle)
+        {
+            return altarCycle switch
+            {
+                0 => s.cobaltTier,
+                1 => s.mythrilTier,
+                _ => s.adamantiteTier,
+            };
+        }
+
+        private static void BlessWorldWithOreFromAltar(int altarIndex, int oreTileId)
+        {
+            int altarCycle = altarIndex % 3;
+            int altarGroup = altarIndex / 3 + 1;
+            double oreRuns = (double)Main.maxTilesX / 4200.0;
+            oreRuns = oreRuns * 310.0 - (85 * altarCycle);
+            oreRuns *= 0.85;
+            oreRuns /= altarGroup;
+
+            if (oreTileId == TileID.Palladium || oreTileId == TileID.Orichalcum || oreTileId == TileID.Titanium)
+                oreRuns *= 0.8999999761581421;
+
+            if (altarCycle == 0)
+                oreRuns *= 1.0499999523162842;
+
+            for (int k = 0; k < oreRuns; k++)
+            {
+                int x = WorldGen.genRand.Next(100, Main.maxTilesX - 100);
+                double minY = Main.worldSurface;
+                if (oreTileId == TileID.Mythril || oreTileId == TileID.Orichalcum)
+                    minY = Main.rockLayer;
+                else if (oreTileId == TileID.Adamantite || oreTileId == TileID.Titanium)
+                    minY = (Main.rockLayer + Main.rockLayer + Main.maxTilesY) / 3.0;
+
+                int y = WorldGen.genRand.Next((int)minY, Main.maxTilesY - 150);
+                if (Main.remixWorld)
+                {
+                    double remixCap = Main.maxTilesY - 350;
+                    if (oreTileId == TileID.Mythril || oreTileId == TileID.Orichalcum)
+                        remixCap = (Main.rockLayer + Main.rockLayer + Main.maxTilesY - 350.0) / 3.0;
+                    else if (oreTileId == TileID.Adamantite || oreTileId == TileID.Titanium)
+                        remixCap = Main.rockLayer - 25.0;
+
+                    y = WorldGen.genRand.Next((int)Main.worldSurface + 15, Math.Max((int)Main.worldSurface + 16, (int)remixCap));
+                }
+
+                int strengthMin = 5;
+                int strengthMax = Main.tenthAnniversaryWorld ? 11 : 9;
+                WorldGen.OreRunner(
+                    x,
+                    y,
+                    WorldGen.genRand.Next(strengthMin, strengthMax + 1),
+                    WorldGen.genRand.Next(strengthMin, strengthMax + 1),
+                    (ushort)oreTileId);
+            }
+        }
+
+        private static void RestoreLunarApocalypseIfNeeded(WorldProgressSnapshot s)
+        {
+            bool hadMoonLordCountdown = s.moonLordCountdown > 0 && s.maxMoonLordCountdown > 0;
+            bool hadLunarApocalypse =
+                s.lunarApocalypseIsUp ||
+                s.towerActiveSolar ||
+                s.towerActiveVortex ||
+                s.towerActiveNebula ||
+                s.towerActiveStardust;
+
+            if (hadLunarApocalypse)
+            {
+                WorldGen.TriggerLunarApocalypse();
+                NPC.LunarApocalypseIsUp = true;
+
+                NPC.TowerActiveSolar = s.towerActiveSolar;
+                NPC.TowerActiveVortex = s.towerActiveVortex;
+                NPC.TowerActiveNebula = s.towerActiveNebula;
+                NPC.TowerActiveStardust = s.towerActiveStardust;
+
+                NPC.ShieldStrengthTowerSolar = s.shieldStrengthTowerSolar;
+                NPC.ShieldStrengthTowerVortex = s.shieldStrengthTowerVortex;
+                NPC.ShieldStrengthTowerNebula = s.shieldStrengthTowerNebula;
+                NPC.ShieldStrengthTowerStardust = s.shieldStrengthTowerStardust;
+
+                RemoveInactiveTowersFromActiveEvent(s);
+                WorldGen.UpdateLunarApocalypse();
+                return;
+            }
+
+            if (!hadMoonLordCountdown)
+                return;
+
+            NPC.LunarApocalypseIsUp = false;
+            NPC.MaxMoonLordCountdown = s.maxMoonLordCountdown;
+            NPC.MoonLordCountdown = s.moonLordCountdown;
+        }
+
+        private static void RemoveInactiveTowersFromActiveEvent(WorldProgressSnapshot s)
+        {
+            for (int i = 0; i < Main.maxNPCs; i++)
+            {
+                NPC npc = Main.npc[i];
+                if (!npc.active)
+                    continue;
+
+                bool shouldStay = npc.type switch
+                {
+                    NPCID.LunarTowerSolar => s.towerActiveSolar,
+                    NPCID.LunarTowerVortex => s.towerActiveVortex,
+                    NPCID.LunarTowerNebula => s.towerActiveNebula,
+                    NPCID.LunarTowerStardust => s.towerActiveStardust,
+                    _ => true,
+                };
+
+                if (!shouldStay)
+                    npc.active = false;
+            }
+        }
+
+        private static int CountActiveTiles(ushort tileType, int stopAfter = int.MaxValue)
+        {
+            int count = 0;
+            int threshold = Math.Max(1, stopAfter);
+
+            for (int x = 0; x < Main.maxTilesX; x++)
+            {
+                for (int y = 0; y < Main.maxTilesY; y++)
+                {
+                    Tile tile = Main.tile[x, y];
+                    if (tile == null || !tile.HasTile || tile.TileType != tileType)
+                        continue;
+
+                    count++;
+                    if (count >= threshold)
+                        return count;
+                }
+            }
+
+            return count;
         }
 
         /// <summary>
@@ -399,6 +664,66 @@ namespace DynamicWorlds
                 $"{Flag("FrostMoon", s.downedFrostMoonIceQueen || s.downedFrostMoonSantank || s.downedFrostMoonTree)}";
 
             Main.NewText($"  Invasions    → {invasions}", 200, 220, 200);
+
+            string lateProgression =
+                $"{Flag("QueenSlime", s.downedQueenSlime)} " +
+                $"{Flag("Empress", s.downedEmpressOfLight)} " +
+                $"{Flag("Cultist", s.downedAncientCultist)} " +
+                $"{Flag("Pillars", s.downedTowerSolar || s.downedTowerVortex || s.downedTowerNebula || s.downedTowerStardust)} " +
+                $"{Flag("Books", s.combatBookWasUsed || s.combatBookVolumeTwoWasUsed)}";
+
+            Main.NewText($"  Late Flags   → {lateProgression}", 200, 200, 255);
+            Main.NewText(
+                $"  World Changes → Orbs={s.shadowOrbCount}, MeteorQueued={(s.spawnMeteor ? "Y" : "N")}, MeteorTiles={s.meteoriteTileCount}, Altars={s.altarCount}",
+                200,
+                220,
+                200);
+            Main.NewText(
+                $"  Lunar State  → Active={(s.lunarApocalypseIsUp ? "Y" : "N")}, Towers={(s.towerActiveSolar ? "S" : "-")}{(s.towerActiveVortex ? "V" : "-")}{(s.towerActiveNebula ? "N" : "-")}{(s.towerActiveStardust ? "D" : "-")}, Countdown={s.moonLordCountdown}",
+                200,
+                200,
+                255);
+
+            if (s.calamity != null && s.calamity.loaded)
+            {
+                Main.NewText(
+                    $"  Calamity     → Rev={(s.calamity.revenge ? "Y" : "N")}, Death={(s.calamity.death ? "Y" : "N")}, AcidRain={(s.calamity.acidRainActive ? "Y" : "N")}, BossRush={(s.calamity.bossRushActive ? $"Stage {s.calamity.bossRushStage}" : "N")}",
+                    255,
+                    210,
+                    150);
+                Main.NewText(
+                    $"  Calamity WCs → Astral={(s.calamity.hadAstralBiome ? "Y" : "N")}, Planetoids={(s.calamity.hadLuminitePlanetoids ? "Y" : "N")}, Bandit={(s.calamity.spawnedBandit ? "Y" : "N")}, Draedon={(s.calamity.talkedToDraedon ? "Y" : "N")}",
+                    255,
+                    210,
+                    150);
+                
+                // Print Calamity boss downed flags
+                if (s.calamity.downedFlags.Count > 0)
+                {
+                    string calamityBosses = string.Empty;
+                    foreach (var kv in s.calamity.downedFlags)
+                    {
+                        if (kv.Value)
+                        {
+                            if (!string.IsNullOrEmpty(calamityBosses))
+                                calamityBosses += ", ";
+                            
+                            // Convert flag name to display name (e.g., "downedDesertScourge" → "Desert Scourge")
+                            string displayName = System.Text.RegularExpressions.Regex.Replace(
+                                kv.Key.Replace("downed", "").Replace("started", ""),
+                                @"([A-Z])",
+                                " $1").Trim();
+                            
+                            calamityBosses += displayName;
+                        }
+                    }
+                    
+                    if (!string.IsNullOrEmpty(calamityBosses))
+                    {
+                        Main.NewText($"  Calamity Bosses → {calamityBosses}", 255, 180, 120);
+                    }
+                }
+            }
 
             // Town NPCs
             if (s.collectedNpcTypes != null && s.collectedNpcTypes.Count > 0)

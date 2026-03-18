@@ -51,7 +51,19 @@ Run [code]/regenworld [seed][/code] to save the current world, enter a loading s
 [*] Floating island builds stay floating instead of getting a giant dirt pillar to the ground
 [/list]
 
-Hold any world tool to see anchors, erasures, and structure zones together.
+[b]Biome Dowser[/b]
+[list]
+[*] Automatically relocates preserved vanilla pylons to matching biomes after regeneration
+[*] Supports all 9 vanilla pylon types with intelligent placement
+[*] Three placement modes: Surface, Underground, and Floating
+[*] Click and drag to create pylon zones around towers and outposts
+[*] Right-click to cycle through placement modes for flexible biome targeting
+[*] Shift-click to remove zones
+[*] Scans surrounding terrain to find the best matching biome location
+[*] Ensures relocated pylons stay functional in their new biome
+[/list]
+
+Hold any world tool to see anchors, erasures, structure zones, and pylon zones together.
 
 [h2]Commands[/h2]
 [list]
@@ -86,7 +98,7 @@ Hold any world tool to see anchors, erasures, and structure zones together.
 [list]
 [*] [b]Does regen happen live while I keep playing?[/b] No. The mod saves and exits to a loading screen, regenerates the world there, then loads you back in automatically.
 [*] [b]Can it change my world evil?[/b] Yes. Turn off [b]Preserve Evil Type[/b], then regen to let the new world choose its evil.
-[*] [b]What about pylons?[/b] Preserved vanilla pylons are repaired after regen so they function again, but they are not currently auto-moved to a matching biome.
+[*] [b]What about pylons?[/b] Preserved vanilla pylons are now automatically relocated to matching biomes using the Biome Dowser system. Create pylon zones to define which structures should be moved and in what placement mode (Surface, Underground, or Floating), and the mod will intelligently relocate them during regen. Pylons are also repaired after regen so they function again.
 [*] [b]Will it work on older worlds?[/b] If the world still loads in your current Terraria/tModLoader setup, Dynamic Worlds can still snapshot and regenerate it. It uses current worldgen, not historical 1.3 generation.
 [*] [b]Will Structure Anchor generate a whole hill around my house?[/b] Not fully. It moves the structure onto new terrain and bridges small gaps; preserve the surrounding terrain too if you want the build embedded.
 [/list]
