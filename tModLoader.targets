@@ -30,5 +30,9 @@
 			<HintPath>$(tModLoaderPath)/Libraries/ReLogic/1.0.0/ReLogic.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
+		<Reference Include="log4net">
+			<HintPath>$(tModLoaderPath)/Libraries/log4net/2.0.8.0/log4net.dll</HintPath>
+			<Private>False</Private>
+		</Reference>
 	</ItemGroup>
 </Project>

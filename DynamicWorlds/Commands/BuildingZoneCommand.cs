@@ -81,6 +81,13 @@ namespace DynamicWorlds
 
 		private void RemoveZone(CommandCaller caller, int zoneId)
 		{
+			if (Main.netMode == Terraria.ID.NetmodeID.MultiplayerClient)
+			{
+				DynamicWorldsNet.RequestRemoveStructureZoneById(zoneId);
+				caller.Reply($"Requested removal of structure zone #{zoneId}.", Color.LightBlue);
+				return;
+			}
+
 			if (StructureAnchorSystem.Zones.TryGetValue(zoneId, out var zone))
 			{
 				StructureAnchorSystem.Zones.Remove(zoneId);
@@ -95,6 +102,13 @@ namespace DynamicWorlds
 
 		private void ClearAllZones(CommandCaller caller)
 		{
+			if (Main.netMode == Terraria.ID.NetmodeID.MultiplayerClient)
+			{
+				DynamicWorldsNet.RequestClearStructureZones();
+				caller.Reply("Requested removal of all structure zones.", Color.LightBlue);
+				return;
+			}
+
 			int count = StructureAnchorSystem.Zones.Count;
 			if (count == 0)
 			{

@@ -124,6 +124,13 @@ namespace DynamicWorlds
 
     public static class WorldProgressUtil
     {
+        internal static string GetProgressFilePathForWorld(string worldPath)
+        {
+            string dir = Path.GetDirectoryName(worldPath)!;
+            string name = Path.GetFileNameWithoutExtension(worldPath);
+            return Path.Combine(dir, name + "_progress.json");
+        }
+
         /// <summary>
         /// Compute path: WorldFolder/WorldName_progress.json
         /// If anything goes wrong, fall back to a Mod save folder.
@@ -135,9 +142,7 @@ namespace DynamicWorlds
                 if (Main.ActiveWorldFileData != null)
                 {
                     string worldPath = Main.ActiveWorldFileData.Path;
-                    string dir = Path.GetDirectoryName(worldPath)!;
-                    string name = Path.GetFileNameWithoutExtension(worldPath);
-                    return Path.Combine(dir, name + "_progress.json");
+                    return GetProgressFilePathForWorld(worldPath);
                 }
             }
             catch
@@ -562,6 +567,45 @@ namespace DynamicWorlds
             int count = 0;
             int threshold = Math.Max(1, stopAfter);
 
+            // Sanity check: if we're just checking for existence, return early
+            // This prevents full-world scans during world load
+            if (stopAfter <= 1)
+            {
+                // Quick check: just see if any exist
+                for (int x = 0; x < Main.maxTilesX && count < threshold; x++)
+                {
+                    for (int y = 0; y < Main.maxTilesY && count < threshold; y++)
+                    {
+                        Tile tile = Main.tile[x, y];
+                        if (tile != null && tile.HasTile && tile.TileType == tileType)
+                        {
+                            return 1;
+                        }
+                    }
+                }
+                return 0;
+            }
+
+            // For meteorite tiles, use a faster sampling approach instead of full scan
+            // Check a reasonable percentage of the world rather than every tile
+            if (tileType == TileID.Meteorite)
+            {
+                // Sample-based counting: check 1 in every 100 tiles for faster estimation
+                for (int x = 0; x < Main.maxTilesX; x += 10)
+                {
+                    for (int y = 0; y < Main.maxTilesY; y += 10)
+                    {
+                        Tile tile = Main.tile[x, y];
+                        if (tile != null && tile.HasTile && tile.TileType == tileType)
+                        {
+                            count += 100; // Estimate: multiply by sampling factor
+                        }
+                    }
+                }
+                return Math.Min(count, 5000); // Cap at reasonable max
+            }
+
+            // Standard full scan for other tile types (but with break condition)
             for (int x = 0; x < Main.maxTilesX; x++)
             {
                 for (int y = 0; y < Main.maxTilesY; y++)

@@ -13,7 +13,7 @@ namespace DynamicWorlds
 
 		public override string Usage => "/dwtools";
 
-		public override string Description => "Gives you all four Dynamic Worlds tools: Reality Anchor, Reality Eraser, Structure Anchor, and Biome Dowser.";
+		public override string Description => "Gives you all Dynamic Worlds tools: Anchor, Eraser, Structure Anchor, Biome Dowser, and Prefab Tool.";
 
 		public override void Action(CommandCaller caller, string input, string[] args)
 		{
@@ -47,7 +47,14 @@ namespace DynamicWorlds
 				player.QuickSpawnItem(player.GetSource_GiftOrReward(), dowserType);
 			}
 
-			caller.Reply("Given all four Dynamic Worlds tools!", Color.LimeGreen);
+			// Give Prefab Tool
+			int prefabType = ModContent.ItemType<PrefabToolItem>();
+			if (prefabType > 0)
+			{
+				player.QuickSpawnItem(player.GetSource_GiftOrReward(), prefabType);
+			}
+
+			caller.Reply("Given all Dynamic Worlds tools!", Color.LimeGreen);
 		}
 	}
 }

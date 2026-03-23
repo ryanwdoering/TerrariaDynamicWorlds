@@ -18,6 +18,38 @@ namespace DynamicWorlds
     // ---------------------------------------------------------------------
     public class ErasedTileSystem : ModSystem
     {
+        internal readonly struct EraseRectangleResult
+        {
+            public readonly bool Removing;
+            public readonly int Width;
+            public readonly int Height;
+            public readonly int ChangedCount;
+            public readonly int SkippedCount;
+            public readonly int Cap;
+            public readonly int TotalErasedCount;
+            public readonly List<Point16> ChangedPositions;
+
+            public EraseRectangleResult(
+                bool removing,
+                int width,
+                int height,
+                int changedCount,
+                int skippedCount,
+                int cap,
+                int totalErasedCount,
+                List<Point16> changedPositions)
+            {
+                Removing = removing;
+                Width = width;
+                Height = height;
+                ChangedCount = changedCount;
+                SkippedCount = skippedCount;
+                Cap = cap;
+                TotalErasedCount = totalErasedCount;
+                ChangedPositions = changedPositions;
+            }
+        }
+
         // All tile positions marked for erasure on next regen
         public static readonly HashSet<Point16> ErasedTiles = new HashSet<Point16>();
 
@@ -29,7 +61,7 @@ namespace DynamicWorlds
             ErasedTiles.Clear();
 
             if (ErasedIcon == null || !ErasedIcon.IsLoaded)
-                ErasedIcon = ModContent.Request<Texture2D>("DynamicWorlds/ErasedTile");
+                ErasedIcon = ModContent.Request<Texture2D>("DynamicWorlds/Preservation/ErasedTile");
         }
 
         public override void OnWorldUnload()
@@ -128,6 +160,11 @@ namespace DynamicWorlds
         // If the start tile was already marked, the whole rectangle is unmarked; otherwise it is marked.
         public static void ApplyRectangle(Point16 start, Point16 end, bool removing)
         {
+            ApplyRectangleWithResult(start, end, removing, announce: true);
+        }
+
+        internal static EraseRectangleResult ApplyRectangleWithResult(Point16 start, Point16 end, bool removing, bool announce)
+        {
             int x0 = System.Math.Min(start.X, end.X);
             int x1 = System.Math.Max(start.X, end.X);
             int y0 = System.Math.Min(start.Y, end.Y);
@@ -136,6 +173,7 @@ namespace DynamicWorlds
             int cap     = GetErasureCap();
             int added   = 0;
             int skipped = 0;
+            var changedPositions = new List<Point16>();
 
             for (int x = x0; x <= x1; x++)
             {
@@ -147,7 +185,8 @@ namespace DynamicWorlds
                     var pos = new Point16(x, y);
                     if (removing)
                     {
-                        ErasedTiles.Remove(pos);
+                        if (ErasedTiles.Remove(pos))
+                            changedPositions.Add(pos);
                     }
                     else if (!ErasedTiles.Contains(pos))
                     {
@@ -158,21 +197,44 @@ namespace DynamicWorlds
                         }
                         ErasedTiles.Add(pos);
                         added++;
+                        changedPositions.Add(pos);
                     }
                 }
             }
 
             int w = x1 - x0 + 1;
             int h = y1 - y0 + 1;
-            if (removing)
+            int changedCount = removing ? changedPositions.Count : added;
+            if (announce && removing)
             {
                 Main.NewText($"Unmarked {w}×{h} region for erasure.", 255, 150, 100);
             }
-            else
+            else if (announce)
             {
                 Main.NewText($"Marked {added} tile{(added == 1 ? "" : "s")} for erasure in {w}×{h} region. ({ErasedTiles.Count}/{cap} used)", 255, 120, 60);
                 if (skipped > 0)
                     Main.NewText($"{skipped} tile{(skipped == 1 ? "" : "s")} skipped — erasure cap reached. Defeat more bosses to expand your limit.", 255, 200, 80);
+            }
+
+            return new EraseRectangleResult(
+                removing,
+                w,
+                h,
+                changedCount,
+                skipped,
+                cap,
+                ErasedTiles.Count,
+                changedPositions);
+        }
+
+        internal static void ApplySyncedDelta(IEnumerable<Point16> changedPositions, bool removing)
+        {
+            foreach (Point16 pos in changedPositions)
+            {
+                if (removing)
+                    ErasedTiles.Remove(pos);
+                else
+                    ErasedTiles.Add(pos);
             }
         }
 
@@ -299,8 +361,7 @@ namespace DynamicWorlds
 
         public override void PostUpdate()
         {
-            // Only act when holding the Reality Eraser in singleplayer
-            if (Main.netMode != NetmodeID.SinglePlayer || Main.mapFullscreen)
+            if (Main.netMode == NetmodeID.Server || Main.mapFullscreen || Player.whoAmI != Main.myPlayer)
             {
                 if (IsDragging) CancelDrag();
                 _wasHoldingLastFrame = false;
@@ -342,7 +403,10 @@ namespace DynamicWorlds
                 // Button just released — commit the rectangle
                 SoundEngine.PlaySound(SoundID.Item4, Player.position);
                 IsDragging = false;
-                ErasedTileSystem.ApplyRectangle(DragStart, DragEnd, DragRemoving);
+                if (Main.netMode == NetmodeID.SinglePlayer)
+                    ErasedTileSystem.ApplyRectangle(DragStart, DragEnd, DragRemoving);
+                else
+                    DynamicWorldsNet.RequestEraseRectangle(DragStart, DragEnd, DragRemoving);
             }
 
             _wasHoldingLastFrame = mouseHeld;
@@ -360,6 +424,8 @@ namespace DynamicWorlds
     // ---------------------------------------------------------------------
     public class RealityEraser : ModItem
     {
+        public override string Texture => "DynamicWorlds/Preservation/RealityEraser";
+
         public override void SetDefaults()
         {
             Item.width        = 32;

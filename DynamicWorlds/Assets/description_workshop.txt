@@ -67,7 +67,7 @@ Preserves an entire build as one zone instead of preserving tile-by-tile. Restor
 Automatically relocates preserved vanilla pylons to matching biomes after regeneration. Create pylon zones to define structures that should be moved, choose placement mode, and the mod intelligently scans for matching biomes and relocates the structure.
 [list]
 [*] Click and drag to create pylon zones around pylon structures
-[*] Open the settings panel (Right-click) to choose placement modes: Surface, Underground, or Floating
+[*] Right-click to cycle through placement modes: Surface, Underground, or Floating
 [*] Shift-click to remove a zone
 [*] Supports all 9 vanilla pylon types with biome-aware placement
 [*] Scans surrounding terrain to find the best matching biome location

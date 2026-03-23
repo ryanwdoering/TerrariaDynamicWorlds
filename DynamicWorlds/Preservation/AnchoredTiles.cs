@@ -297,6 +297,41 @@ namespace DynamicWorlds
     // ---------------------------------------------------------------------
     public class AnchoredTileSystem : ModSystem
     {
+        internal readonly struct AnchorRectangleResult
+        {
+            public readonly bool Removing;
+            public readonly int Width;
+            public readonly int Height;
+            public readonly int ChangedCount;
+            public readonly int SkippedCount;
+            public readonly int BlockedByZones;
+            public readonly int Cap;
+            public readonly int TotalAnchoredCount;
+            public readonly List<Point16> ChangedPositions;
+
+            public AnchorRectangleResult(
+                bool removing,
+                int width,
+                int height,
+                int changedCount,
+                int skippedCount,
+                int blockedByZones,
+                int cap,
+                int totalAnchoredCount,
+                List<Point16> changedPositions)
+            {
+                Removing = removing;
+                Width = width;
+                Height = height;
+                ChangedCount = changedCount;
+                SkippedCount = skippedCount;
+                BlockedByZones = blockedByZones;
+                Cap = cap;
+                TotalAnchoredCount = totalAnchoredCount;
+                ChangedPositions = changedPositions;
+            }
+        }
+
         // All tiles that are currently anchored (marked for preservation)
         public static readonly Dictionary<Point16, AnchoredTileData> AnchoredTiles
             = new Dictionary<Point16, AnchoredTileData>();
@@ -315,7 +350,7 @@ namespace DynamicWorlds
             AnchoredChests.Clear();
 
             if (ActuatorIcon == null || !ActuatorIcon.IsLoaded)
-                ActuatorIcon = ModContent.Request<Texture2D>("DynamicWorlds/AnchoredTile");
+                ActuatorIcon = ModContent.Request<Texture2D>("DynamicWorlds/Preservation/AnchoredTile");
         }
 
         public override void OnWorldUnload()
@@ -435,6 +470,11 @@ namespace DynamicWorlds
         // the whole rectangle is unanchored; otherwise it is anchored.
         public static void ApplyRectangle(Point16 start, Point16 end, bool removing)
         {
+            ApplyRectangleWithResult(start, end, removing, announce: true);
+        }
+
+        internal static AnchorRectangleResult ApplyRectangleWithResult(Point16 start, Point16 end, bool removing, bool announce)
+        {
             int x0 = System.Math.Min(start.X, end.X);
             int x1 = System.Math.Max(start.X, end.X);
             int y0 = System.Math.Min(start.Y, end.Y);
@@ -444,6 +484,7 @@ namespace DynamicWorlds
             int added   = 0;
             int skipped = 0;
             int blockedByZones = 0;
+            var changedPositions = new List<Point16>();
 
             for (int x = x0; x <= x1; x++)
             {
@@ -455,8 +496,11 @@ namespace DynamicWorlds
                     var pos = new Point16(x, y);
                     if (removing)
                     {
-                        AnchoredTiles.Remove(pos);
-                        TryReleaseContainer(x, y);
+                        if (AnchoredTiles.Remove(pos))
+                        {
+                            TryReleaseContainer(x, y);
+                            changedPositions.Add(pos);
+                        }
                     }
                     else if (!AnchoredTiles.ContainsKey(pos))
                     {
@@ -474,23 +518,58 @@ namespace DynamicWorlds
                         AnchoredTiles[pos] = AnchoredTileData.CaptureFromWorld(x, y);
                         TryCaptureContainer(x, y);
                         added++;
+                        changedPositions.Add(pos);
                     }
                 }
             }
 
             int w = x1 - x0 + 1;
             int h = y1 - y0 + 1;
-            if (removing)
+            int changedCount = removing ? changedPositions.Count : added;
+            if (announce && removing)
             {
                 Main.NewText($"Unanchored {w}×{h} region.", 255, 100, 100);
             }
-            else
+            else if (announce)
             {
                 Main.NewText($"Anchored {added} tile{(added == 1 ? "" : "s")} in {w}×{h} region. ({AnchoredTiles.Count}/{cap} used)", 100, 255, 100);
                 if (blockedByZones > 0)
                     Main.NewText($"{blockedByZones} tile{(blockedByZones == 1 ? "" : "s")} skipped — structure zones already protect those spaces.", 255, 140, 100);
                 if (skipped > 0)
                     Main.NewText($"{skipped} tile{(skipped == 1 ? "" : "s")} skipped — anchor cap reached. Defeat more bosses to expand your limit.", 255, 200, 80);
+            }
+
+            return new AnchorRectangleResult(
+                removing,
+                w,
+                h,
+                changedCount,
+                skipped,
+                blockedByZones,
+                cap,
+                AnchoredTiles.Count,
+                changedPositions);
+        }
+
+        internal static void ApplySyncedDelta(IEnumerable<Point16> changedPositions, bool removing)
+        {
+            foreach (Point16 pos in changedPositions)
+            {
+                if (removing)
+                {
+                    AnchoredTiles.Remove(pos);
+                    AnchoredChests.Remove(pos);
+                    continue;
+                }
+
+                if (!AnchoredTiles.ContainsKey(pos))
+                {
+                    AnchoredTiles[pos] = new AnchoredTileData
+                    {
+                        Position = pos,
+                        Active = true
+                    };
+                }
             }
         }
 
@@ -741,8 +820,7 @@ namespace DynamicWorlds
 
         public override void PostUpdate()
         {
-            // Only act when holding the Reality Anchor in singleplayer
-            if (Main.netMode != NetmodeID.SinglePlayer || Main.mapFullscreen)
+            if (Main.netMode == NetmodeID.Server || Main.mapFullscreen || Player.whoAmI != Main.myPlayer)
             {
                 if (IsDragging) CancelDrag();
                 _wasHoldingLastFrame = false;
@@ -784,7 +862,10 @@ namespace DynamicWorlds
                 // Button just released — commit the rectangle
                 SoundEngine.PlaySound(SoundID.Item4, Player.position);
                 IsDragging = false;
-                AnchoredTileSystem.ApplyRectangle(DragStart, DragEnd, DragRemoving);
+                if (Main.netMode == NetmodeID.SinglePlayer)
+                    AnchoredTileSystem.ApplyRectangle(DragStart, DragEnd, DragRemoving);
+                else
+                    DynamicWorldsNet.RequestAnchorRectangle(DragStart, DragEnd, DragRemoving);
             }
 
             _wasHoldingLastFrame = mouseHeld;
@@ -802,6 +883,8 @@ namespace DynamicWorlds
     // ---------------------------------------------------------------------
     public class RealityAnchor : ModItem
     {
+        public override string Texture => "DynamicWorlds/Preservation/RealityAnchor";
+
         public override void SetDefaults()
         {
             Item.width        = 32;

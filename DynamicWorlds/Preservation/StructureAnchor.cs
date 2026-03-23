@@ -337,8 +337,14 @@ namespace DynamicWorlds
             short minY = connectedTiles.Min(pos => pos.Y);
             short maxY = connectedTiles.Max(pos => pos.Y);
 
-            var topLeft = new Point16(minX, minY);
-            var bottomRight = new Point16(maxX, maxY);
+            // Pad by 1 tile inside the selection to keep edge objects (doors, frames) that touch the boundary
+            short paddedMinX = (short)Math.Max(selectionTopLeft.X, minX - 1);
+            short paddedMaxX = (short)Math.Min(selectionBottomRight.X, maxX + 1);
+            short paddedMinY = (short)Math.Max(selectionTopLeft.Y, minY - 1);
+            short paddedMaxY = (short)Math.Min(selectionBottomRight.Y, maxY + 1);
+
+            var topLeft = new Point16(paddedMinX, paddedMinY);
+            var bottomRight = new Point16(paddedMaxX, paddedMaxY);
             var zone = new BuildingZone
             {
                 Id = id,
@@ -503,22 +509,25 @@ namespace DynamicWorlds
             // 1. Bridge only small support gaps beneath the restored footprint.
             //    If the structure lands on a floating island, leave it floating
             //    instead of creating a dirt pillar down to the surface below.
-            for (int x = newLeftX; x <= newRightX; x++)
+            if (!placement.SkipSupportBridging)
             {
-                int supportY = FindNearbySupportY(x, newBottomY + 1);
-                if (supportY <= newBottomY + 1)
-                    continue;
-
-                for (int y = newBottomY + 1; y < supportY; y++)
+                for (int x = newLeftX; x <= newRightX; x++)
                 {
-                    if (!WorldGen.InWorld(x, y, 1))
+                    int supportY = FindNearbySupportY(x, newBottomY + 1);
+                    if (supportY <= newBottomY + 1)
                         continue;
 
-                    Tile tile = Framing.GetTileSafely(x, y);
-                    tile.ClearEverything();
-                    tile.HasTile  = true;
-                    tile.TileType = ResolveSupportFillTileType(x, y);
-                    lowestTouchedY = Math.Max(lowestTouchedY, y);
+                    for (int y = newBottomY + 1; y < supportY; y++)
+                    {
+                        if (!WorldGen.InWorld(x, y, 1))
+                            continue;
+
+                        Tile tile = Framing.GetTileSafely(x, y);
+                        tile.ClearEverything();
+                        tile.HasTile  = true;
+                        tile.TileType = ResolveSupportFillTileType(x, y);
+                        lowestTouchedY = Math.Max(lowestTouchedY, y);
+                    }
                 }
             }
 
@@ -713,14 +722,16 @@ namespace DynamicWorlds
         public readonly short DeltaX;
         public readonly short DeltaY;
         public readonly int GroundY;
+        public readonly bool SkipSupportBridging;
 
-        public ZoneRestorePlacement(Point16 topLeft, Point16 bottomRight, int deltaX, int deltaY, int groundY)
+        public ZoneRestorePlacement(Point16 topLeft, Point16 bottomRight, int deltaX, int deltaY, int groundY, bool skipSupportBridging = false)
         {
             TopLeft = topLeft;
             BottomRight = bottomRight;
             DeltaX = (short)deltaX;
             DeltaY = (short)deltaY;
             GroundY = groundY;
+            SkipSupportBridging = skipSupportBridging;
         }
     }
 
@@ -767,7 +778,7 @@ namespace DynamicWorlds
             _nextId = 1;
 
             if (ZoneIcon == null || !ZoneIcon.IsLoaded)
-                ZoneIcon = ModContent.Request<Texture2D>("DynamicWorlds/AnchoredTile");
+                ZoneIcon = ModContent.Request<Texture2D>("DynamicWorlds/Preservation/AnchoredTile");
         }
 
         public override void OnWorldUnload()
@@ -867,6 +878,100 @@ namespace DynamicWorlds
             return false;
         }
 
+        internal static bool TryCreateZone(Point16 topLeft, Point16 bottomRight, out BuildingZone zone, out string message)
+        {
+            zone = null;
+
+            if (bottomRight.X - topLeft.X < 1 || bottomRight.Y - topLeft.Y < 1)
+            {
+                message = "Drag a larger area to define a structure zone.";
+                return false;
+            }
+
+            foreach (var kv in Zones)
+            {
+                BuildingZone existingZone = kv.Value;
+                bool overlapX = topLeft.X <= existingZone.BottomRight.X && bottomRight.X >= existingZone.TopLeft.X;
+                bool overlapY = topLeft.Y <= existingZone.BottomRight.Y && bottomRight.Y >= existingZone.TopLeft.Y;
+                if (overlapX && overlapY)
+                {
+                    message = $"Zone overlaps with existing zone #{kv.Key} — tiles can only belong to one zone.";
+                    return false;
+                }
+            }
+
+            if (TryFindOverlappingAnchoredTile(topLeft, bottomRight, out Point16 anchoredOverlap))
+            {
+                message =
+                    $"Structure zones cannot overlap individually anchored tiles. Remove the anchor at ({anchoredOverlap.X}, {anchoredOverlap.Y}) first.";
+                return false;
+            }
+
+            int newId = NextId();
+            zone = BuildingZone.Capture(topLeft, bottomRight, newId);
+            Zones[newId] = zone;
+
+            int area = zone.Width * zone.Height;
+            message = $"Structure zone #{newId} created: {zone.Width}×{zone.Height} ({area} tiles). Ground ref Y={zone.SavedGroundY}.";
+            return true;
+        }
+
+        internal static bool RemoveZoneAt(Point16 clickPos, out int removedZoneId, out string message)
+        {
+            foreach (var kv in Zones)
+            {
+                BuildingZone zone = kv.Value;
+                bool insideX = clickPos.X >= zone.TopLeft.X && clickPos.X <= zone.BottomRight.X;
+                bool insideY = clickPos.Y >= zone.TopLeft.Y && clickPos.Y <= zone.BottomRight.Y;
+                if (!insideX || !insideY)
+                    continue;
+
+                removedZoneId = kv.Key;
+                Zones.Remove(removedZoneId);
+                message = $"Structure zone #{removedZoneId} removed. ({Zones.Count} zones remain)";
+                return true;
+            }
+
+            removedZoneId = -1;
+            message = "Shift+Click on a structure zone to remove it.";
+            return false;
+        }
+
+        internal static bool RemoveZoneById(int zoneId, out string message)
+        {
+            if (Zones.Remove(zoneId))
+            {
+                message = $"Structure zone #{zoneId} removed. ({Zones.Count} zones remain)";
+                return true;
+            }
+
+            message = $"Zone #{zoneId} not found.";
+            return false;
+        }
+
+        internal static int ClearAllZones()
+        {
+            int count = Zones.Count;
+            Zones.Clear();
+            return count;
+        }
+
+        internal static void UpsertSyncedZone(BuildingZone syncedZone)
+        {
+            if (syncedZone == null)
+                return;
+
+            if (Zones.TryGetValue(syncedZone.Id, out BuildingZone existingZone) && existingZone.Tiles.Count > 0)
+                return;
+
+            Zones[syncedZone.Id] = syncedZone;
+        }
+
+        internal static void RemoveSyncedZone(int zoneId)
+        {
+            Zones.Remove(zoneId);
+        }
+
         // ── Save / Load ───────────────────────────────────────────────────────
         public override void SaveWorldData(TagCompound tag)
         {
@@ -951,7 +1056,7 @@ namespace DynamicWorlds
 
         public override void PostUpdate()
         {
-            if (Main.netMode != NetmodeID.SinglePlayer || Main.mapFullscreen)
+            if (Main.netMode == NetmodeID.Server || Main.mapFullscreen || Player.whoAmI != Main.myPlayer)
             {
                 if (IsDragging) CancelDrag();
                 _wasHoldingLastFrame = false;
@@ -1011,74 +1116,40 @@ namespace DynamicWorlds
             int y0 = System.Math.Min(DragStart.Y, DragEnd.Y);
             int y1 = System.Math.Max(DragStart.Y, DragEnd.Y);
 
-            if (x1 - x0 < 1 || y1 - y0 < 1)
-            {
-                Main.NewText("Drag a larger area to define a structure zone.", 255, 200, 80);
-                return;
-            }
-
             var tl = new Point16(x0, y0);
             var br = new Point16(x1, y1);
 
-            // Check for overlap with ANY existing zone — no zone may overlap another
-            foreach (var kv in StructureAnchorSystem.Zones)
+            if (Main.netMode == NetmodeID.SinglePlayer)
             {
-                var z = kv.Value;
-                bool overlapX = x0 <= z.BottomRight.X && x1 >= z.TopLeft.X;
-                bool overlapY = y0 <= z.BottomRight.Y && y1 >= z.TopLeft.Y;
-                if (overlapX && overlapY)
-                {
-                    Main.NewText($"Zone overlaps with existing zone #{kv.Key} — tiles can only belong to one zone.", 255, 80, 80);
-                    return;
-                }
-            }
+                if (StructureAnchorSystem.TryCreateZone(tl, br, out _, out string message))
+                    Main.NewText(message, 100, 200, 255);
+                else
+                    Main.NewText(message, 255, 120, 120);
 
-            if (StructureAnchorSystem.TryFindOverlappingAnchoredTile(tl, br, out Point16 anchoredOverlap))
-            {
-                Main.NewText(
-                    $"Structure zones cannot overlap individually anchored tiles. Remove the anchor at ({anchoredOverlap.X}, {anchoredOverlap.Y}) first.",
-                    255, 120, 120);
                 return;
             }
 
-            int newId = StructureAnchorSystem.NextId();
-            var zone  = BuildingZone.Capture(tl, br, newId);
-            StructureAnchorSystem.Zones[newId] = zone;
-
-            int area = (x1 - x0 + 1) * (y1 - y0 + 1);
-            Main.NewText(
-                $"Structure zone #{newId} created: {zone.Width}×{zone.Height} ({area} tiles). Ground ref Y={zone.SavedGroundY}.",
-                100, 200, 255);
+            DynamicWorldsNet.RequestStructureZoneCreate(tl, br);
         }
 
         private void RemoveZoneAtPosition(Point16 clickPos)
         {
-            // Find which zone (if any) contains this click position
-            int zoneIdToRemove = -1;
-            foreach (var kv in StructureAnchorSystem.Zones)
+            if (Main.netMode == NetmodeID.SinglePlayer)
             {
-                var zone = kv.Value;
-                bool insideX = clickPos.X >= zone.TopLeft.X && clickPos.X <= zone.BottomRight.X;
-                bool insideY = clickPos.Y >= zone.TopLeft.Y && clickPos.Y <= zone.BottomRight.Y;
-                if (insideX && insideY)
-                {
-                    zoneIdToRemove = kv.Key;
-                    break;
-                }
-            }
-
-            if (zoneIdToRemove != -1)
-            {
-                if (StructureAnchorSystem.Zones.Remove(zoneIdToRemove))
+                if (StructureAnchorSystem.RemoveZoneAt(clickPos, out _, out string message))
                 {
                     SoundEngine.PlaySound(SoundID.Item14, Player.position);
-                    Main.NewText($"Structure zone #{zoneIdToRemove} removed. ({StructureAnchorSystem.Zones.Count} zones remain)", 255, 150, 100);
+                    Main.NewText(message, 255, 150, 100);
                 }
+                else
+                {
+                    Main.NewText(message, 255, 200, 80);
+                }
+
+                return;
             }
-            else
-            {
-                Main.NewText("Shift+Click on a structure zone to remove it.", 255, 200, 80);
-            }
+
+            DynamicWorldsNet.RequestStructureZoneRemoveAt(clickPos);
         }
 
         public void CancelDrag()
@@ -1094,6 +1165,8 @@ namespace DynamicWorlds
     // -------------------------------------------------------------------------
     public class StructureAnchorItem : ModItem
     {
+        public override string Texture => "DynamicWorlds/Preservation/StructureAnchorItem";
+
         public override void SetDefaults()
         {
             Item.width        = 32;

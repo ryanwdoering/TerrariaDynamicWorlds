@@ -828,7 +828,7 @@ namespace DynamicWorlds
 
     public class PylonAnchorItem : ModItem
     {
-        public override string Texture => "DynamicWorlds/pylonanchor";
+        public override string Texture => "DynamicWorlds/Preservation/pylonanchor";
 
         public override void SetDefaults()
         {

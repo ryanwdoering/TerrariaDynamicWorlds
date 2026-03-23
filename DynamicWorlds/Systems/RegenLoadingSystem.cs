@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -43,6 +44,7 @@ namespace DynamicWorlds
         public int CycleCount = 1;
         public string SeedOverride;
         public string SnapshotFolderPath;
+        public string SourceWorldPath;
     }
 
     internal sealed class QueuedRepeatRegen
@@ -66,6 +68,8 @@ namespace DynamicWorlds
 
     public class DynamicWorldRegenSystem : ModSystem
     {
+        private const int MaxPreRegenWorldBackupsPerWorld = 5;
+
         private static PendingRegenContext _pending;
         private static RegenLoadingUI _loadingUi;
         private static QueuedRepeatRegen _queuedRepeat;
@@ -89,7 +93,7 @@ namespace DynamicWorlds
             _pending.Stage = RegenLifecycleStage.PreparingToQuit;
             _pending.StatusMessage = "Saving current world...";
 
-            WorldGen.SaveAndQuit(() => Main.QueueMainThreadAction(BeginGenerationFromMenu));
+            WorldGen.SaveAndQuit(() => Main.QueueMainThreadAction(BeginGenerationFromMenuWithBackup));
         }
 
         public override void OnWorldLoad()
@@ -305,6 +309,15 @@ namespace DynamicWorlds
             EnsureLoadingUi();
         }
 
+        private static void BeginGenerationFromMenuWithBackup()
+        {
+            if (_pending == null)
+                return;
+
+            TryCreatePreRegenBackup(_pending);
+            BeginGenerationFromMenu();
+        }
+
         private static void HandleGenerationCompleted(Task completedTask)
         {
             if (_pending == null || _pending.Stage != RegenLifecycleStage.Generating)
@@ -343,6 +356,92 @@ namespace DynamicWorlds
             Main.menuMode = 888;
             if (Main.MenuUI.CurrentState != _loadingUi)
                 Main.MenuUI.SetState(_loadingUi);
+        }
+
+        private static void TryCreatePreRegenBackup(PendingRegenContext pending)
+        {
+            if (pending == null || string.IsNullOrWhiteSpace(pending.SourceWorldPath))
+                return;
+
+            try
+            {
+                string sourceWorldPath = pending.SourceWorldPath;
+                if (!File.Exists(sourceWorldPath))
+                    return;
+
+                string worldFileName = Path.GetFileNameWithoutExtension(sourceWorldPath);
+                string worldDirectory = Path.GetDirectoryName(sourceWorldPath)!;
+                string backupRoot = Path.Combine(
+                    worldDirectory,
+                    "DynamicWorldsBackups",
+                    SanitizeFileNamePart(worldFileName));
+                string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss_fff");
+                string backupFolder = Path.Combine(backupRoot, timestamp);
+
+                Directory.CreateDirectory(backupFolder);
+
+                CopyIfExists(sourceWorldPath, Path.Combine(backupFolder, Path.GetFileName(sourceWorldPath)));
+
+                string tmodWorldPath = Path.ChangeExtension(sourceWorldPath, ".twld");
+                CopyIfExists(tmodWorldPath, Path.Combine(backupFolder, Path.GetFileName(tmodWorldPath)));
+
+                string progressPath = WorldProgressUtil.GetProgressFilePathForWorld(sourceWorldPath);
+                CopyIfExists(progressPath, Path.Combine(backupFolder, Path.GetFileName(progressPath)));
+
+                string backupInfoPath = Path.Combine(backupFolder, "backup_info.txt");
+                File.WriteAllLines(
+                    backupInfoPath,
+                    new[]
+                    {
+                        $"WorldName: {pending.Snapshot?.worldName ?? Main.worldName}",
+                        $"WorldId: {pending.Snapshot?.worldId ?? Main.worldID}",
+                        $"OriginalWorldPath: {sourceWorldPath}",
+                        $"CreatedLocal: {DateTime.Now:yyyy-MM-dd HH:mm:ss}",
+                        $"Cycle: {pending.CycleIndex}/{pending.CycleCount}",
+                        $"SeedLabel: {pending.SeedLabel}",
+                    });
+
+                RotateBackups(backupRoot, MaxPreRegenWorldBackupsPerWorld);
+
+                ModContent.GetInstance<DynamicWorlds>().Logger.Info(
+                    $"[Regen] Created pre-regen world backup at: {backupFolder}");
+            }
+            catch (Exception ex)
+            {
+                ModContent.GetInstance<DynamicWorlds>().Logger.Warn(
+                    $"[Regen] Failed to create pre-regen world backup: {ex.Message}");
+            }
+        }
+
+        private static void CopyIfExists(string sourcePath, string destinationPath)
+        {
+            if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+                return;
+
+            File.Copy(sourcePath, destinationPath, overwrite: true);
+        }
+
+        private static void RotateBackups(string backupRoot, int keepCount)
+        {
+            if (keepCount < 1 || string.IsNullOrWhiteSpace(backupRoot) || !Directory.Exists(backupRoot))
+                return;
+
+            string[] backupDirectories = Directory.GetDirectories(backupRoot)
+                .OrderByDescending(Path.GetFileName)
+                .ToArray();
+
+            for (int i = keepCount; i < backupDirectories.Length; i++)
+            {
+                try
+                {
+                    Directory.Delete(backupDirectories[i], recursive: true);
+                }
+                catch (Exception ex)
+                {
+                    ModContent.GetInstance<DynamicWorlds>().Logger.Warn(
+                        $"[Regen] Failed to prune old backup folder '{backupDirectories[i]}': {ex.Message}");
+                }
+            }
         }
 
         private static void PersistPlayerForReload(RegenExecutionResult result)

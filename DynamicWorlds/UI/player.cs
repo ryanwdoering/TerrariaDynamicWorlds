@@ -21,6 +21,18 @@ namespace DynamicWorlds
             _savedTileY = -1;
         }
 
+        public override bool PreKill(double damage, int hitDirection, bool pvp, ref bool playSound, ref bool blood, ref Terraria.DataStructures.PlayerDeathReason damageSource)
+        {
+            // Trigger regen on death if enabled
+            if (ModContent.GetInstance<DynamicWorldsConfig>().RegenOnDeath && Main.netMode == NetmodeID.SinglePlayer)
+            {
+                SingleplayerRegenHelper.RegenerateWorldWithProgress();
+                return false; // Prevent death (world will regen)
+            }
+
+            return base.PreKill(damage, hitDirection, pvp, ref playSound, ref blood, ref damageSource);
+        }
+
         public override void OnEnterWorld()
         {
             // Gift Reality Anchor if not already in inventory
@@ -48,6 +60,9 @@ namespace DynamicWorlds
 
             if (DynamicWorldRegenSystem.TryHandlePostRegenEnter(Player))
                 return;
+
+            if (Main.netMode == NetmodeID.MultiplayerClient && Player.whoAmI == Main.myPlayer)
+                DynamicWorldsNet.RequestFullSync();
 
             // Restore last position — singleplayer only, and only if the destination
             // tiles are actually clear so the player doesn't clip into solid terrain.

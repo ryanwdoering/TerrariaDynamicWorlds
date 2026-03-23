@@ -56,7 +56,7 @@ Mods: {
 					Click and drag to define a biome-aware pylon relocation zone.
 					Each zone must fully contain exactly one vanilla pylon.
 					Only tiles connected to that pylon inside the selected area are saved and moved.
-					Right-click while holding to cycle between surface, underground, and floating preferences.
+					Open the Biome Dowser settings to choose surface, underground, floating, sky, and ocean preferences per pylon.
 					Only compatible pylons can use each preference, and unsupported modes fall back automatically.
 					On regen, the saved structure is rebuilt in a biome where that pylon can function.
 					Biome Dowser zones cannot overlap structure zones or individually anchored tiles.
@@ -86,6 +86,11 @@ Items: {
 
 	BiomeDowser: {
 		DisplayName: Biome Dowser
+		Tooltip: ""
+	}
+
+	PrefabToolItem: {
+		DisplayName: Prefab Tool Item
 		Tooltip: ""
 	}
 }
@@ -127,6 +132,16 @@ Configs: {
 		RandomizeSeedEachRegen: {
 			Label: Randomize World Each Regen
 			Tooltip: If disabled, regen reuses the current world seed when available. If enabled, each regeneration picks a fresh seed
+		}
+
+		RegenOnDeath: {
+			Tooltip: When enabled, dying will trigger an automatic world regeneration
+			Label: Regenerate World on Death
+		}
+
+		BiomeDowserRegenChatLog: {
+			Label: Biome Dowser Regen Chat Log
+			Tooltip: Show detailed Biome Dowser placement results in chat after a world regeneration finishes loading
 		}
 	}
 }

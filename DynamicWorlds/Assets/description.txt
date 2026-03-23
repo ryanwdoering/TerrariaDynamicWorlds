@@ -6,7 +6,7 @@ Dynamic Worlds is a single-player focused tModLoader utility mod that lets you r
 
 
 
-Use /regenworld [seed] to:
+Use /regenworld [seed] to:Use /regenworld [seed] to:
 
 - snapshot world progression and preserved data- snapshot world progression and preserved data
 
